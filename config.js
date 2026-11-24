@@ -11,8 +11,8 @@
  *                    the data. Never put the "service_role" / secret key here.
  */
 window.SOP_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://arkvawlxevnwarpfstfx.supabase.co',
+  supabaseAnonKey: 'sb_publishable_c0Juxd4wtYE7eHdMz2M0mA_eX22XlFj',
   appName: 'Finance Handbook',      // shown in the menu and on the sign-in page
   orgName: "The Father's House",    // used when the logo is turned off
   orgLogo: true,                    // show The Father's House logo (js/logo.js)
