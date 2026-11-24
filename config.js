@@ -16,5 +16,5 @@ window.SOP_CONFIG = {
   appName: 'Finance Handbook',      // shown in the menu and on the sign-in page
   orgName: "The Father's House",    // used when the logo is turned off
   orgLogo: true,                    // show The Father's House logo (js/logo.js)
-  googleSignIn: true,               // set to false if Google sign-in isn't set up in Supabase
+  googleSignIn: false,              // turn on after setting up Google in Supabase (docs/SETUP.md, step 2a)
 };
