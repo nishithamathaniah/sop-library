@@ -8,6 +8,7 @@ Father's House, You are Loved, …).
 Built from *SOP Documentation App – Requirements Document* (Nov 12, 2026).
 Changes made to that spec, and why: [docs/SUGGESTIONS.md](docs/SUGGESTIONS.md).
 **To set up the shared version for the team: [docs/SETUP.md](docs/SETUP.md).**
+**New to the app? Read the [Getting Started guide (PDF)](docs/Finance-Handbook-Getting-Started.pdf).**
 
 ## Try it now (local mode)
 
@@ -75,6 +76,8 @@ js/editor.js          guide editor, screenshots, mark-up, autosave
 vendor/               supabase-js 2.119.2 (bundled, no CDN needed)
 supabase/schema.sql   database, access rules, screenshot storage
 docs/SETUP.md         going live, step by step
+docs/Finance-Handbook-Getting-Started.pdf   illustrated guide for the team
+tools/guide/          scripts that take the screenshots and build that PDF
 docs/SUGGESTIONS.md   changes to the original spec and open decisions
 ```
 
