@@ -36,10 +36,10 @@ In **Authentication**:
 
 - **Sign In / Providers → Email**: on. Keep **Confirm email** on, so nobody
   can sign up with someone else's address.
-- **URL Configuration**: set **Site URL** to the address where you host the
-  app (step 4), e.g. `https://tfh-finance.vercel.app`, and add the same
-  address under **Redirect URLs**. Password-reset and confirmation emails link
-  back here.
+- **URL Configuration** (password-reset and confirmation emails link back here):
+  - **Site URL:** `https://tfh-finance-handbook.vercel.app` (exactly this, no slash at the end)
+  - **Redirect URLs → Add URL:** `https://tfh-finance-handbook.vercel.app/**`
+  - **Save**
 - **Google sign-in (optional)**: see 2a below. If you skip it, set
   `googleSignIn: false` in `config.js` so the button is hidden. Everyone can
   still sign in with email and password, and you can add Google later.
