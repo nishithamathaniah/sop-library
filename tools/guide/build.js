@@ -23,11 +23,10 @@ const shot = (name, items, opts = {}) => ({ shot: name, items, ...opts });
 const steps = (title, list) => ({ steps: list, title });
 const tip = (text, kind = '') => ({ tip: text, kind });
 
-section('Signing in', 'Open the link your admin sent you. You only create your account once.', [
+section('Signing in', 'Open **tfh-finance-handbook.vercel.app** on your computer or phone. You only create your account once.', [
   shot('login', [
-    ['Continue with Google', 'The quickest way in, if you have a Google account with the email your admin added.'],
-    ['Email', 'Or type your email address…'],
-    ['Password', '…and your password.'],
+    ['Email', 'The email address your admin added for you.'],
+    ['Password', 'Your password (at least 6 characters).'],
     ['Sign in', 'Opens the handbook.'],
     ['Forgot password?', 'Sends you an email with a link to choose a new password.'],
     ['Create an account', 'First time here? Start with this.'],
@@ -256,7 +255,7 @@ section('For the Admin: accounts, categories and backups', 'Admin → Accounts &
   ]),
 ]);
 
-section('On your phone', 'Open the same link in your phone\'s browser. To keep it on your home screen: Share → Add to Home Screen (iPhone) or ⋮ → Add to Home screen (Android).', [
+section('On your phone', 'Open **tfh-finance-handbook.vercel.app** in your phone\'s browser. To keep it on your home screen: Share → Add to Home Screen (iPhone) or ⋮ → Add to Home screen (Android).', [
   { phones: ['phone-all', 'phone-guide', 'phone-follow'], captions: ['All tasks', 'A task guide', 'Follow along'] },
   shot('phone-all', [
     ['All tasks', 'The menu moves to the bottom of the screen.'],
@@ -403,7 +402,7 @@ table.qr { width: 100%; border-collapse: collapse; margin-bottom: 5mm; font-size
   <div class="week">
     <h3>Your first week</h3>
     <ol>
-      <li><span><b>Sign in</b> with the link and email your admin sent you (section 1).</span></li>
+      <li><span><b>Sign in</b> at <b>tfh-finance-handbook.vercel.app</b> with the email your admin added for you (section 1).</span></li>
       <li><span><b>List your tasks</b>: My tasks → <span class="ui">Add several</span>, and paste all 10–15 of them (section 6).</span></li>
       <li><span><b>Write three guides</b> for the tasks you do most often, with screenshots (sections 7 and 8).</span></li>
       <li><span><b>Test one</b>: ask a teammate to do the task using only your guide, in Follow along mode. Fix anything they ask about.</span></li>
@@ -424,6 +423,7 @@ ${S.map((s, i) => `<section class="section">
   <p class="lead">Keep this page handy.</p>
   <table class="qr">
     <tr><th>I want to…</th><th>Go to</th></tr>
+    <tr><td>Open the handbook</td><td><b>tfh-finance-handbook.vercel.app</b> (bookmark it, or add it to your phone's home screen)</td></tr>
     <tr><td>Do a task I haven't done before</td><td>All tasks → open the task → <span class="ui">Follow along</span></td></tr>
     <tr><td>See only one account's tasks</td><td>All tasks → <span class="ui">All accounts</span> filter → pick the account</td></tr>
     <tr><td>Find a task quickly</td><td>Search box on All tasks (or press <span class="ui">/</span>)</td></tr>

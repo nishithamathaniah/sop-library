@@ -11,7 +11,12 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const [APP, OUT, SB_URL, SB_KEY] = process.argv.slice(2);
+const [SRC, OUT, SB_URL, SB_KEY] = process.argv.slice(2);
+// Pages are loaded at the real public address (so it shows in screenshots)
+// but served from the local copy given as SRC.
+const APP = process.env.GUIDE_SITE || 'https://tfh-finance-handbook.vercel.app/';
+const SB_PUBLIC = 'https://supabase-local.test';
+const LOCAL_CFG = "window.SOP_CONFIG={supabaseUrl:'',supabaseAnonKey:'',appName:'Finance Handbook',orgName:\"The Father's House\",orgLogo:true,googleSignIn:false};";
 fs.mkdirSync(OUT, { recursive: true });
 const manifest = {};
 const HIDE = '#toasts{display:none!important} *{caret-color:transparent!important} dialog.modal[open]{animation:none!important}';
@@ -44,7 +49,10 @@ async function shot(page, name, marks = [], { clip, el, pad = 16 } = {}) {
 
 async function newPage(b, opts = {}, cfg) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, ...opts });
-  if (cfg) await ctx.route('**/config.js', (r) => r.fulfill({ contentType: 'application/javascript', body: cfg }));
+  await ctx.route(APP + '**', async (r) => r.fulfill({ response: await r.fetch({ url: r.request().url().replace(APP, SRC) }) }));
+  // The page is https, so reach a local Supabase through an https stand-in address
+  if (SB_URL && SB_URL.startsWith('http://')) await ctx.route(SB_PUBLIC + '/**', async (r) => r.fulfill({ response: await r.fetch({ url: r.request().url().replace(SB_PUBLIC, SB_URL) }) }));
+  await ctx.route('**/config.js', (r) => r.fulfill({ contentType: 'application/javascript', body: cfg || LOCAL_CFG }));
   const p = await ctx.newPage();
   p.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
   await p.addInitScript((css) => { addEventListener('DOMContentLoaded', () => { const s = document.createElement('style'); s.textContent = css; document.head.appendChild(s); }); }, HIDE);
@@ -208,7 +216,7 @@ const demo = async (p, email) => { await p.goto(APP); await p.waitForSelector('.
 
   /* ---------- Shared mode (sign-in, people) ---------- */
   if (SB_URL && SB_KEY) {
-    const cfg = `window.SOP_CONFIG={supabaseUrl:'${SB_URL}',supabaseAnonKey:'${SB_KEY}',appName:'Finance Handbook',orgName:"The Father's House",orgLogo:true,googleSignIn:true};`;
+    const cfg = `window.SOP_CONFIG={supabaseUrl:'${SB_URL.startsWith('http://') ? SB_PUBLIC : SB_URL}',supabaseAnonKey:'${SB_KEY}',appName:'Finance Handbook',orgName:"The Father's House",orgLogo:true,googleSignIn:false};`;
     const signUp = async (q, name, email) => {
       await q.goto(APP); await q.waitForSelector('#login-form'); await q.click('[data-mode="up"]');
       await q.fill('input[name=name]', name); await q.fill('input[name=email]', email); await q.fill('input[name=password]', 'secret123');
@@ -216,7 +224,7 @@ const demo = async (p, email) => { await p.goto(APP); await p.waitForSelector('.
     };
     const m = await newPage(b, {}, cfg);
     await m.goto(APP); await m.waitForSelector('#login-form');
-    await shot(m, 'login', ['[data-google]', 'input[name=email]', 'input[name=password]', '#login-form button.primary', '[data-mode="reset"]', ['[data-mode="up"]', 'right']], { el: '.login-card', pad: 24 });
+    await shot(m, 'login', ['input[name=email]', 'input[name=password]', '#login-form button.primary', '[data-mode="reset"]', ['[data-mode="up"]', 'right']], { el: '.login-card', pad: 24 });
     await m.click('[data-mode="up"]');
     await shot(m, 'signup', ['input[name=name]', 'input[name=email]', '#login-form button.primary'], { el: '.login-card', pad: 24 });
     await signUp(m, 'Mercy', 'mercy@example.com');

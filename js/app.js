@@ -864,7 +864,7 @@ function adminView(q) {
       </div>`).join('')}
     </div>
     <button class="btn primary" data-action="edit-user">${ico('plus')} Add person</button>
-    ${CLOUD ? `<p class="muted small" style="margin-top:.8rem">New people sign up at <b>${esc(appUrl())}</b> with the email you add here (or Continue with Google) and get their role straight away.</p>` : ''}`;
+    ${CLOUD ? `<p class="muted small" style="margin-top:.8rem">New people sign up at <b>${esc(appUrl())}</b> with the email you add here${GOOGLE_ON ? ' (or Continue with Google)' : ''} and get their role straight away.</p>` : ''}`;
   } else if (tab === 'lists') {
     const listEditor = (key, title, help, placeholder, count) => `
     <section class="list-block">
@@ -919,7 +919,7 @@ const actions = {
   'activate': async (el) => { const u = user(el.dataset.id); u.active = true; await saveUser(u); toast(`${u.name} can now sign in as ${ROLES[u.role]}`); render(); },
   'copy-invite': (el) => {
     const iv = S.invites.find((x) => x.email === el.dataset.email);
-    const text = `Hi ${iv.name}, you've been added to our ${APP_NAME}. Open ${appUrl()} and choose "Create an account" (or "Continue with Google") using ${iv.email}.`;
+    const text = `Hi ${iv.name}, you've been added to our ${APP_NAME}. Open ${appUrl()} and choose "Create an account"${GOOGLE_ON ? ' (or "Continue with Google")' : ''} using ${iv.email}.`;
     navigator.clipboard?.writeText(text);
     toast('Invite message copied. Paste it into WhatsApp or email.');
   },
@@ -1115,7 +1115,7 @@ function userModal(u) {
       ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${(u?.role || 'owner') === k ? 'selected' : ''}>${v} — ${{ admin: 'manages people and can edit everything', owner: 'writes and edits their own task guides', reader: 'reads and prints published guides' }[k]}</option>`).join('')}
     </select></label>
     ${isNew && !CLOUD ? '<label class="field"><span>Temporary password</span><input name="pw" required minlength="6" value="welcome1"><small class="hint">Share it with them; they can change it after signing in.</small></label>' : ''}
-    ${isNew && CLOUD ? '<p class="muted small">They\'ll get this role as soon as they create an account with this email, or use Continue with Google. You can copy an invite message afterwards.</p>' : ''}
+    ${isNew && CLOUD ? `<p class="muted small">They'll get this role as soon as they create an account with this email${GOOGLE_ON ? ', or use Continue with Google' : ''}. You can copy an invite message afterwards.</p>` : ''}
     <p class="error" hidden></p>
     <div class="modal-actions spread">
       ${!isNew && u.id !== S.me.id ? `<div><button type="button" class="btn ghost ${u.active ? 'danger-text' : ''}" data-toggle>${u.active ? 'Deactivate' : 'Reactivate'}</button><button type="button" class="btn ghost" data-reset>Reset password</button></div>` : '<span></span>'}
@@ -1244,6 +1244,7 @@ async function importIntoCloud(data) {
 }
 
 const appUrl = () => location.origin + location.pathname;
+const GOOGLE_ON = CONFIG.googleSignIn !== false;
 
 /* ---------- Boot ---------- */
 async function loadAll() {
