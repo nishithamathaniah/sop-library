@@ -23,6 +23,8 @@ const S = {
   meta: { id: 'settings', categories: [] },
   me: null,
   filters: { q: '', account: '', owner: '', status: '', frequency: '', category: '' },
+  due: { account: '', owner: '' },
+  runs: [],
 };
 const imgCache = new Map();
 
@@ -317,7 +319,8 @@ async function render() {
     if (!s || !canView(s)) html = notFound();
     else if (parts[2] === 'edit' && canEdit(s)) { html = Editor.view(s); after = () => Editor.mount(s); active = s.ownerId === S.me.id ? 'mine' : 'library'; }
     else { html = viewSop(s); after = () => mountSop(s); }
-  } else if (parts[0] === 'mine' && canCreate()) { html = mineView(); active = 'mine'; }
+  } else if (parts[0] === 'due') { html = dueView(); active = 'due'; after = mountDue; }
+  else if (parts[0] === 'mine' && canCreate()) { html = mineView(); active = 'mine'; }
   else if (parts[0] === 'admin' && isAdmin()) { html = adminView(q); active = 'admin'; }
   else { html = libraryView(); active = 'library'; after = renderList; }
 
@@ -331,11 +334,13 @@ async function render() {
 function shell(content, active) {
   const nav = [
     ['library', '#/', 'book', 'All tasks'],
+    ['due', '#/due', 'check', 'Checklist'],
     ...(canCreate() ? [['mine', '#/mine', 'user', 'My tasks']] : []),
     ...(isAdmin() ? [['admin', '#/admin', 'settings', 'Admin']] : []),
   ];
-  const mineCount = canCreate() ? S.sops.filter((s) => s.ownerId === S.me.id && (s.status !== 'Published' || reviewDue(s) || openFlags(s.id).length)).length : 0;
-  const link = ([k, href, i, label], cls) => `<a href="${href}" class="${cls} ${active === k ? 'on' : ''}">${ico(i)}<span>${label}</span>${k === 'mine' && mineCount ? `<b class="count">${mineCount}</b>` : ''}</a>`;
+  const mineCount = canCreate() ? S.sops.filter((s) => s.ownerId === S.me.id && (s.status !== 'Published' || reviewDue(s) || openFlags(s.id).length || (trackable(s) && ['overdue', 'soon'].includes(track(s).state)))).length : 0;
+  const lateCount = S.runsMissing ? 0 : overdueCount();
+  const link = ([k, href, i, label], cls) => `<a href="${href}" class="${cls} ${active === k ? 'on' : ''}">${ico(i)}<span>${label}</span>${k === 'due' && lateCount ? `<b class="count late" title="Overdue">${lateCount}</b>` : ''}${k === 'mine' && mineCount ? `<b class="count">${mineCount}</b>` : ''}</a>`;
   return `
   <div class="shell">
     <aside class="side no-print">
@@ -592,6 +597,7 @@ function renderList() {
 function mineView() {
   const mine = S.sops.filter((s) => s.ownerId === S.me.id).sort((a, b) => a.name.localeCompare(b.name));
   const backup = S.sops.filter((s) => s.backupId === S.me.id && canView(s));
+  const dueNow = [...mine, ...backup.filter((s) => s.ownerId !== S.me.id)].filter((s) => trackable(s) && ['overdue', 'soon'].includes(track(s).state));
   const attention = mine.filter((s) => s.status !== 'Published' || reviewDue(s) || openFlags(s.id).length);
   const done = mine.filter((s) => !attention.includes(s));
   const pub = mine.filter((s) => s.status === 'Published').length;
@@ -624,6 +630,11 @@ function mineView() {
     <div><h2>${pub} of ${mine.length} published</h2>
     <p class="muted">${mine.length === 0 ? 'Start by listing your recurring tasks. Use "Add several" to paste them all at once.' : attention.length ? `${attention.length} task${attention.length > 1 ? 's' : ''} need${attention.length > 1 ? '' : 's'} your attention.` : 'Everything is published and up to date. Nice work.'}</p></div>
   </section>
+  ${dueNow.length ? `<h2 class="section-title">To do now</h2><div class="cards">${dueNow.map((s) => `
+    <div class="task-card due-card ${track(s).state}">
+      <a href="#/sop/${s.id}"><b>${esc(s.name || 'Untitled task')}</b><small>${acctLabel(s) ? `${esc(acctLabel(s))} · ` : ''}${esc(track(s).state === 'overdue' ? track(s).prev.label : track(s).p.label)}${s.ownerId !== S.me.id ? ` · covering for ${esc(uname(s.ownerId))}` : ''}</small><p class="why">${esc(track(s).state === 'overdue' ? 'Overdue: not marked as done' : track(s).text)}</p></a>
+      <div class="tc-right"><a class="btn sm" href="#/sop/${s.id}/follow">${ico('play')} Follow along</a><button class="btn sm primary" data-action="mark-done" data-id="${s.id}">${ico('check')} Done</button></div>
+    </div>`).join('')}</div>` : ''}
   ${attention.length ? `<h2 class="section-title">Needs your attention</h2><div class="cards">${attention.map((s) => card(s, true)).join('')}</div>` : ''}
   ${done.length ? `<h2 class="section-title">Published</h2><div class="cards">${done.map((s) => card(s, false)).join('')}</div>` : ''}
   ${backup.length ? `<h2 class="section-title">You're the backup for</h2><div class="cards">${backup.map((s) => card(s, false)).join('')}</div>` : ''}`;
@@ -662,6 +673,7 @@ function viewSop(s) {
       <div><dt>Owner</dt><dd>${avatar(s.ownerId, 'xs')} ${esc(uname(s.ownerId))}</dd></div>
       <div><dt>Backup</dt><dd>${s.backupId ? `${avatar(s.backupId, 'xs')} ${esc(uname(s.backupId))}` : '—'}</dd></div>
     </dl>
+    ${trackBar(s)}
 
     ${s.tools.some((t) => t.trim()) ? `
     <section class="block"><h2>${ico('key')} Tools and access you need</h2>
@@ -748,6 +760,7 @@ function renderFollow(s) {
           <h1>${ico('check')} Check it's done</h1>
           ${checks.length ? `<ul class="checks big">${checks.map((t, i) => `<li><label><input type="checkbox" data-chk="${i}" ${st.checks.includes(i) ? 'checked' : ''}><span>${fmtText(t)}</span></label></li>`).join('')}</ul>` : '<p class="muted">No checklist for this task.</p>'}
           ${s.output ? `<div class="callout">${ico('download')}<div><b>Output:</b> ${fmtText(s.output)}</div></div>` : ''}
+          ${trackable(s) && track(s).state !== 'done' ? `<label class="check record"><input type="checkbox" data-record checked> Record this task as done${track(s).p ? ` for <b>${esc(track(s).state === 'overdue' ? track(s).prev.label : track(s).p.label)}</b>` : ' today'}</label>` : ''}
         ` : `
           <div class="big-num">${st.i + 1}</div>
           <div class="instr lg">${fmtText(step.text)}</div>
@@ -776,7 +789,17 @@ function renderFollow(s) {
       save(); draw();
     });
     const fin = $('[data-finish]');
-    fin && (fin.onclick = () => { localStorage.removeItem(key); toast('Task complete. Well done!'); go(`#/sop/${s.id}`); });
+    fin && (fin.onclick = async () => {
+      const record = trackable(s) && $('[data-record]')?.checked;
+      if (record) {
+        await refreshRuns(s.id);
+        const t = track(s);
+        if (t.state !== 'done') await saveRun(s, t.state === 'overdue' ? t.prev : t.p);
+      }
+      localStorage.removeItem(key);
+      toast(record ? 'Done and recorded. Well done!' : 'Task complete. Well done!');
+      go(`#/sop/${s.id}`);
+    });
   }
   function move(d) {
     if (d > 0 && st.i < steps.length && !st.done.includes(steps[st.i].id)) st.done.push(steps[st.i].id);
@@ -879,6 +902,7 @@ function adminView(q) {
     body = `
     <div class="cards">
       <div class="card-action"><div>${ico('print')}<b>Handover pack</b><p class="muted">Print every published guide, or one person's or one account's, as a single PDF.</p></div><a class="btn" href="#/pack">Open</a></div>
+      <div class="card-action"><div>${ico('list')}<b>Download the task log</b><p class="muted">Every time a task was marked as done: who, when, which period and any note. Opens in Excel or Google Sheets, handy for the auditor.</p></div><button class="btn" data-action="runs-csv">Download</button></div>
       <div class="card-action"><div>${ico('download')}<b>Download a full backup</b><p class="muted">One file with every guide, screenshot, person and version. Keep it somewhere safe.</p></div><button class="btn" data-action="export">Download</button></div>
       ${CLOUD
         ? `<div class="card-action"><div>${ico('upload')}<b>Import guides from a backup</b><p class="muted">Adds the guides and screenshots from a backup file, for example one made while trying the app on your own computer. Owners are matched by email; anyone not found becomes you.</p></div><label class="btn">Choose file<input type="file" accept=".json,application/json" data-action-change="import" hidden></label></div>`
@@ -934,6 +958,7 @@ const actions = {
     await seedDemoData(); await loadAll(); S.me = null; go('#/'); render();
   },
 };
+Object.assign(actions, TrackerActions);
 const changeActions = {
   'set-role': async (el) => { const u = user(el.dataset.id); u.role = el.value; await saveUser(u); toast(`${u.name} is now ${ROLES[u.role]}`); render(); },
   'import': (el) => importBackup(el.files[0]),
@@ -1254,6 +1279,8 @@ async function loadAll() {
   S.meta.accounts = S.meta.accounts || [];
   S.sops.forEach((s) => { s.accounts = s.accounts || []; });
   S.invites = CLOUD ? await DB.all('invites').catch(() => []) : [];
+  S.runsMissing = false;
+  S.runs = await DB.since('runs', 'doneAt', new Date(Date.now() - 400 * 86400000).toISOString()).catch(() => { S.runsMissing = true; return []; });
   if (S.me) S.me = S.users.find((u) => u.id === S.me.id) || S.me;
 }
 

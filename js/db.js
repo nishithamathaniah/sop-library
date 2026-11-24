@@ -17,8 +17,8 @@ const CLOUD = !!(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 /* ---------- Local backend (IndexedDB) ---------- */
 const LocalDB = (() => {
   const NAME = 'sop-library';
-  const VERSION = 1;
-  const STORES = ['users', 'sops', 'versions', 'images', 'comments', 'meta'];
+  const VERSION = 2; // 2: added 'runs' (task completions)
+  const STORES = ['users', 'sops', 'versions', 'images', 'comments', 'meta', 'runs'];
   let dbp = null;
 
   function open() {
@@ -50,6 +50,7 @@ const LocalDB = (() => {
     all,
     get: (s, id) => run(s, 'readonly', (st) => st.get(id)),
     where: async (s, field, value) => (await all(s)).filter((x) => x[field] === value),
+    since: async (s, field, iso) => (await all(s)).filter((x) => (x[field] || '') >= iso),
     put: (s, v) => run(s, 'readwrite', (st) => { st.put(v); }),
     putMany: (s, list) => run(s, 'readwrite', (st) => { list.forEach((v) => st.put(v)); }),
     del: (s, id) => run(s, 'readwrite', (st) => { st.delete(id); }),
@@ -65,7 +66,7 @@ const sb = CLOUD && window.supabase
 
 const CloudDB = (() => {
   if (!CLOUD) return null;
-  const TABLE = { users: 'profiles', sops: 'sops', versions: 'sop_versions', comments: 'comments', meta: 'settings', invites: 'invites' };
+  const TABLE = { users: 'profiles', sops: 'sops', versions: 'sop_versions', comments: 'comments', meta: 'settings', invites: 'invites', runs: 'task_runs' };
   const KEY = { invites: 'email' };
   const BUCKET = 'screenshots';
   // App fields ending in Id/Date/By/At are nullable columns: '' <-> null
@@ -115,11 +116,14 @@ const CloudDB = (() => {
     async where(store, field, value) {
       return ok(await sb.from(TABLE[store]).select('*').eq(snake(field), value)).map(fromRow);
     },
+    async since(store, field, iso) {
+      return ok(await sb.from(TABLE[store]).select('*').gte(snake(field), iso)).map(fromRow);
+    },
     put,
     async putMany(store, list) { for (const v of list) await put(store, v); },
     async del(store, id) { ok(await sb.from(TABLE[store]).delete().eq(KEY[store] || 'id', id)); },
     async clear() { throw new Error('Not available in the shared library'); },
-    STORES: ['users', 'sops', 'versions', 'images', 'comments', 'meta'],
+    STORES: ['users', 'sops', 'versions', 'images', 'comments', 'meta', 'runs'],
   };
 })();
 
@@ -178,6 +182,7 @@ function mockScreenshot(title, rows, highlightRow) {
 
 async function seedDemoData() {
   const t = new Date().toISOString();
+  const longAgo = new Date(Date.now() - 120 * 86400000).toISOString(); // tasks tracked for ~4 months
   const salt = () => Math.random().toString(36).slice(2, 10);
   const people = [
     { id: 'u_mercy', name: 'Mercy', email: 'mercy@team.local', role: 'admin' },
@@ -223,11 +228,11 @@ async function seedDemoData() {
     doneChecklist: ['Count sheet signed by both counters and filed', 'Bank counterfoil matches the count sheet total', 'Ledger row added for each fund with the slip number'],
     output: 'Money deposited in the church account; signed count sheet and bank counterfoil in the Offerings folder; Offerings ledger updated.',
     status: 'Published', reviewDate: review.toISOString().slice(0, 10),
-    createdAt: t, updatedAt: t, updatedBy: 'u_mercy',
+    createdAt: longAgo, updatedAt: t, updatedBy: 'u_mercy',
   };
   const blank = (id, name, ownerId, category, frequency, accounts) => ({
     id, name, ownerId, backupId: '', category, frequency, accounts, purpose: '', whenToDo: '', tools: [''], steps: [step('')],
-    links: [], mistakes: [], doneChecklist: [''], output: '', status: 'Draft', reviewDate: '', createdAt: t, updatedAt: t, updatedBy: ownerId,
+    links: [], mistakes: [], doneChecklist: [''], output: '', status: 'Draft', reviewDate: '', createdAt: longAgo, updatedAt: t, updatedBy: ownerId,
   });
   await LocalDB.putMany('sops', [
     example,
@@ -238,5 +243,33 @@ async function seedDemoData() {
     blank('sop_s5', 'Record and file supplier invoices', 'u_laveena', 'Invoices & bills', 'As needed', ['Father\'s House', 'You are Loved']),
     blank('sop_s6', 'Top up and count petty cash', 'u_mohan', 'Cash', 'Weekly', ['LifeHub']),
     blank('sop_s7', 'Prepare quarterly accounts for the auditor', 'u_mohan', 'Records & reports', 'Quarterly', ['You are Loved']),
+  ]);
+
+  // Completions, so the Checklist shows a realistic mix of done, due and overdue
+  const day = 86400000;
+  const run = (sopId, freq, when, by, note = '') => {
+    const at = new Date(when);
+    const p = periodOf(freq, at);
+    return { id: 'run_' + Math.random().toString(36).slice(2, 9), sopId, period: p ? p.key : 'adhoc', label: p ? p.label : '', doneAt: at.toISOString(), doneBy: by, note };
+  };
+  const now = Date.now();
+  const thisWeek = periodOf('Weekly').start.getTime();
+  const lastWeek = thisWeek - 7 * day;
+  const lastMonth = periodOf('Monthly').start.getTime() - 20 * day;
+  const lastQuarter = periodOf('Quarterly').start.getTime() - 30 * day;
+  await LocalDB.putMany('runs', [
+    run('sop_example', 'Weekly', lastWeek + 1 * day + 10 * 3600000, 'u_princess', 'Deposited ₹31,500. Slip 004513.'),
+    run('sop_example', 'Weekly', lastWeek - 6 * day, 'u_mercy'),
+    run('sop_s1', 'Monthly', lastMonth + 2 * day, 'u_mercy', 'Shared with the church committee.'),
+    run('sop_s2', 'Monthly', Math.min(now, periodOf('Monthly').start.getTime() + 4 * day + 15 * 3600000), 'u_princess', 'All entries matched.'),
+    run('sop_s2', 'Monthly', lastMonth, 'u_princess'),
+    run('sop_s3', 'Weekly', Math.min(now, thisWeek + 9 * 3600000), 'u_princess', '3 requests paid.'),
+    run('sop_s3', 'Weekly', lastWeek + 2 * day, 'u_princess'),
+    run('sop_s4', 'Weekly', Math.min(now, thisWeek + 11 * 3600000), 'u_laveena'),
+    run('sop_s4', 'Weekly', lastWeek + 2 * day, 'u_laveena'),
+    run('sop_s6', 'Weekly', lastWeek - 4 * day, 'u_mohan'),
+    run('sop_s7', 'Quarterly', lastQuarter, 'u_mohan', 'Sent to the auditor.'),
+    run('sop_s5', 'As needed', now - 5 * day, 'u_laveena', 'Two supplier invoices filed.'),
+    run('sop_s5', 'As needed', now - 19 * day, 'u_laveena'),
   ]);
 }

@@ -146,3 +146,12 @@ until the Admin taps **Give access**.
 - **This repository is public.** The church's guides live in Supabase, not
   here, but the demo names in `js/db.js` and the logo are visible. Make the
   repository private in GitHub settings if you prefer.
+
+## Updates
+
+Run each of these once in Supabase → **SQL Editor → New query** → paste → **Run**
+(new installs already have them inside `schema.sql`):
+
+| File | Adds |
+| --- | --- |
+| [`supabase/migrations/002_task_runs.sql`](../supabase/migrations/002_task_runs.sql) | The **Checklist**: "Mark as done", overdue tasks, history and the task log |
