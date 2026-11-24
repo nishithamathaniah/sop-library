@@ -1,18 +1,28 @@
-/* SOP Library: state, helpers, routing and the read-only screens.
+/* Finance Handbook: state, helpers, routing and the read-only screens.
  * The editor lives in editor.js.
  */
 'use strict';
 
-const FREQ = ['Daily', 'Weekly', 'Monthly', 'Termly', 'Yearly', 'As needed'];
+const FREQ = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly', 'As needed'];
 const STATUSES = ['Draft', 'Published', 'Needs update'];
 const ROLES = { admin: 'Admin', owner: 'Owner', reader: 'Reader' };
 const REVIEW_MONTHS = 6;
+const APP_NAME = CONFIG.appName || 'Finance Handbook';
+const ORG_NAME = CONFIG.orgName || '';
+const hasLogo = () => CONFIG.orgLogo !== false && !!window.ORG_LOGO;
+const orgLogo = (cls = '') => hasLogo() ? `<span class="org-logo ${cls}">${window.ORG_LOGO}</span>` : '';
+// Sidebar / top bar: church logo + app name, or a plain icon + names when there's no logo
+const brandMark = () => hasLogo()
+  ? `${orgLogo('sm')}<span class="brand-text"><span>${esc(APP_NAME)}</span></span>`
+  : `<span class="logo">${ico('list')}</span><span class="brand-text">${ORG_NAME ? `<small>${esc(ORG_NAME)}</small>` : ''}<span>${esc(APP_NAME)}</span></span>`;
+// Sign-in page and printed cover
+const heroMark = () => hasLogo() ? orgLogo('lg') : `<span class="logo lg">${ico('list')}</span>${ORG_NAME ? `<p class="org">${esc(ORG_NAME)}</p>` : ''}`;
 
 const S = {
   users: [], sops: [], comments: [],
   meta: { id: 'settings', categories: [] },
   me: null,
-  filters: { q: '', owner: '', status: '', frequency: '', category: '' },
+  filters: { q: '', account: '', owner: '', status: '', frequency: '', category: '' },
 };
 const imgCache = new Map();
 
@@ -94,7 +104,7 @@ const ICONS = {
   list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
   video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
-  key: 'M15 7a4 4 0 1 1-3.9 5H3v3h3v3h3v-3h2.1A4 4 0 0 1 15 7zM16 10h.01',
+  key: 'M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4zM16.5 7.5h.01',
   download: 'M12 4v12M6 10l6 6 6-6M4 20h16',
   upload: 'M12 20V8M6 14l6-6 6 6M4 4h16',
   users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M22 21a7 7 0 0 0-4-6.3',
@@ -129,6 +139,7 @@ function checkSop(s) {
   const has = (v) => String(v || '').trim().length > 0;
   if (!has(s.name)) miss.push(['f-name', 'Task name']);
   if (!s.ownerId) miss.push(['f-owner', 'Owner']);
+  if (S.meta.accounts.length && !(s.accounts || []).length) miss.push(['f-accounts', 'Which account(s)']);
   if (!s.category) miss.push(['f-category', 'Category']);
   if (!s.frequency) miss.push(['f-frequency', 'Frequency']);
   if (!has(s.purpose)) miss.push(['f-purpose', 'Purpose']);
@@ -138,11 +149,12 @@ function checkSop(s) {
   if (!filled.length) miss.push(['f-steps', 'At least one step']);
   else if (s.steps.some((st) => !has(st.text) && (st.imageId || st.link || st.note))) miss.push(['f-steps', 'Every step needs an instruction']);
   if (!s.doneChecklist.some(has)) miss.push(['f-done', 'Done checklist']);
-  const TOTAL = 9;
+  const TOTAL = S.meta.accounts.length ? 10 : 9;
   return { missing: miss, done: TOTAL - miss.length, total: TOTAL };
 }
 
-const SECRET_RE = /\b(pass(word|wd|code)?|pwd|pin|otp)\b\s*(is|[:=-])\s*\S+/i;
+// Passwords, PINs and OTPs, plus bank account, card and UPI numbers written next to their label
+const SECRET_RE = /\b(pass(word|wd|code)?|pwd|pin|otp)\b\s*(is|[:=-])\s*\S+|\b(a\/c|account|acct|card|upi)\s*(no\.?|number|num|#|id)?\s*(is|[:=-])?\s*[\w.@-]*\d{6,}/i;
 
 function statusPill(s, opts = {}) {
   const map = { Draft: 'draft', Published: 'pub', 'Needs update': 'upd' };
@@ -155,6 +167,28 @@ function statusPill(s, opts = {}) {
   return h;
 }
 
+/* Accounts (e.g. LifeHub, Father's House, You are Loved). '*' means all accounts. */
+const acctLabel = (s) => (s.accounts || []).includes('*') ? 'All accounts' : (s.accounts || []).join(', ');
+const acctPills = (s) => (s.accounts || []).includes('*')
+  ? '<span class="pill acct">All accounts</span>'
+  : (s.accounts || []).map((a) => `<span class="pill acct">${esc(a)}</span>`).join('');
+/* Checkbox chips for choosing accounts in a form */
+function acctPicker(selected = [], name = 'accounts') {
+  if (!S.meta.accounts.length) return '';
+  const all = selected.includes('*');
+  return `<div class="field"><span>Account${S.meta.accounts.length > 1 ? 's' : ''}</span><div class="picks">
+    ${S.meta.accounts.map((a) => `<label class="pick"><input type="checkbox" name="${name}" value="${esc(a)}" ${!all && selected.includes(a) ? 'checked' : ''}><span>${esc(a)}</span></label>`).join('')}
+    ${S.meta.accounts.length > 1 ? `<label class="pick all"><input type="checkbox" name="${name}" value="*" ${all ? 'checked' : ''}><span>All accounts</span></label>` : ''}
+  </div></div>`;
+}
+/* Keep "All accounts" and single accounts mutually exclusive */
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t.matches('.picks input[type=checkbox]') || !t.checked) return;
+  $$('input[type=checkbox]', t.closest('.picks')).forEach((x) => { if (x !== t && (t.value === '*' || x.value === '*')) x.checked = false; });
+});
+const pickedAccounts = (form, name = 'accounts') => new FormData(form).getAll(name);
+
 /* ---------- Data writes ---------- */
 async function saveSop(s) {
   s.updatedAt = now();
@@ -165,7 +199,7 @@ async function saveSop(s) {
 }
 async function pushVersion(prev) {
   await DB.put('versions', { id: uid('v_'), sopId: prev.id, at: prev.updatedAt, by: prev.updatedBy, data: clone(prev) });
-  const all = (await DB.all('versions')).filter((v) => v.sopId === prev.id).sort((a, b) => b.at.localeCompare(a.at));
+  const all = (await DB.where('versions', 'sopId', prev.id)).sort((a, b) => b.at.localeCompare(a.at));
   for (const old of all.slice(30)) await DB.del('versions', old.id);
 }
 async function saveUser(u) {
@@ -180,6 +214,7 @@ function newSop(fields) {
     id: uid('sop_'), name: '', ownerId: S.me.id, backupId: '', category: S.meta.categories[0] || 'Other', frequency: 'Weekly',
     purpose: '', whenToDo: '', tools: [''], steps: [newStep()], links: [], mistakes: [], doneChecklist: [''],
     output: '', status: 'Draft', reviewDate: '', createdAt: now(), updatedAt: now(), updatedBy: S.me.id,
+    accounts: S.meta.accounts.length === 1 ? [S.meta.accounts[0]] : [],
     ...fields,
   };
 }
@@ -287,7 +322,7 @@ async function render() {
   else { html = libraryView(); active = 'library'; after = renderList; }
 
   app.innerHTML = shell(html, active);
-  document.title = 'SOP Library';
+  document.title = APP_NAME;
   window.scrollTo(0, 0);
   after && after();
   hydrateImages(app);
@@ -295,7 +330,7 @@ async function render() {
 
 function shell(content, active) {
   const nav = [
-    ['library', '#/', 'book', 'Library'],
+    ['library', '#/', 'book', 'All tasks'],
     ...(canCreate() ? [['mine', '#/mine', 'user', 'My tasks']] : []),
     ...(isAdmin() ? [['admin', '#/admin', 'settings', 'Admin']] : []),
   ];
@@ -304,14 +339,14 @@ function shell(content, active) {
   return `
   <div class="shell">
     <aside class="side no-print">
-      <a class="brand" href="#/"><span class="logo">${ico('list')}</span><span>SOP Library</span></a>
+      <a class="brand" href="#/">${brandMark()}</a>
       ${canCreate() ? `<button class="btn primary block" data-action="new-task">${ico('plus')} New task</button>` : ''}
       <nav>${nav.map((n) => link(n, 'nav-link')).join('')}</nav>
       <div class="grow"></div>
       <button class="me" data-action="me-menu">${avatar(S.me.id)}<span><b>${esc(S.me.name)}</b><small>${ROLES[S.me.role]}</small></span></button>
     </aside>
     <header class="topbar no-print">
-      <a class="brand" href="#/"><span class="logo">${ico('list')}</span><span>SOP Library</span></a>
+      <a class="brand" href="#/">${brandMark()}</a>
       <button class="me" data-action="me-menu" aria-label="Account">${avatar(S.me.id)}</button>
     </header>
     <main class="main">${content}</main>
@@ -322,16 +357,17 @@ function shell(content, active) {
   </div>`;
 }
 
-const notFound = () => `<div class="empty big">${ico('search')}<h2>Not found</h2><p>This SOP doesn't exist or you don't have access to it.</p><a class="btn" href="#/">Back to library</a></div>`;
+const notFound = () => `<div class="empty big">${ico('search')}<h2>Not found</h2><p>This task guide doesn't exist or you don't have access to it.</p><a class="btn" href="#/">Back to all tasks</a></div>`;
 
 /* ---------- Login ---------- */
 function renderLogin() {
+  if (CLOUD) { renderCloudLogin('in'); return; }
   const demo = S.users.filter((u) => u.active && u.email.endsWith('@team.local'));
   $('#app').innerHTML = `
   <div class="login">
     <form class="login-card" id="login-form">
-      <span class="logo lg">${ico('list')}</span>
-      <h1>SOP Library</h1>
+      ${heroMark()}
+      <h1>${esc(APP_NAME)}</h1>
       <p class="muted">Your team's step-by-step guides, so anyone can pick up any task.</p>
       <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" required autofocus></label>
       <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
@@ -358,8 +394,100 @@ function renderLogin() {
     }
     S.me = u;
     localStorage.setItem('sop-session', u.id);
-    if (!location.hash || location.hash === '#/') render(); else render();
+    render();
   });
+}
+
+/* Sign-in for the shared (cloud) library: password or Google, sign-up, reset. */
+function renderCloudLogin(mode) {
+  const titles = { in: 'Sign in', up: 'Create your account', reset: 'Send reset link' };
+  const google = CONFIG.googleSignIn !== false && mode !== 'reset';
+  $('#app').innerHTML = `
+  <div class="login">
+    <form class="login-card" id="login-form" novalidate>
+      ${heroMark()}
+      <h1>${esc(APP_NAME)}</h1>
+      <p class="muted">${mode === 'up' ? 'Use the email your admin added you with, so you get access straight away.' : mode === 'reset' ? "We'll email you a link to set a new password." : "Your team's step-by-step guides, so anyone can pick up any task."}</p>
+      ${google ? `<button type="button" class="btn block lg google" data-google>${GOOGLE_G} Continue with Google</button>
+      <div class="or"><span>or</span></div>` : ''}
+      ${mode === 'up' ? '<label class="field"><span>Your name</span><input name="name" autocomplete="name" required></label>' : ''}
+      <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" required></label>
+      ${mode !== 'reset' ? `<label class="field"><span>Password</span><input name="password" type="password" minlength="6" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}" required></label>` : ''}
+      <p class="error" id="login-err" hidden></p>
+      <p class="notice" id="login-ok" hidden></p>
+      <button class="btn primary block lg">${titles[mode]}</button>
+      <div class="login-links">
+        ${mode === 'in' ? '<button type="button" class="linkish" data-mode="reset">Forgot password?</button><button type="button" class="linkish" data-mode="up">Create an account</button>' : '<button type="button" class="linkish" data-mode="in">Back to sign in</button>'}
+      </div>
+    </form>
+  </div>`;
+  const f = $('#login-form'), err = $('#login-err'), okMsg = $('#login-ok');
+  const fail = (m) => { err.textContent = m; err.hidden = false; okMsg.hidden = true; };
+  const done = (m) => { okMsg.textContent = m; okMsg.hidden = false; err.hidden = true; };
+  $$('[data-mode]').forEach((b) => b.addEventListener('click', () => renderCloudLogin(b.dataset.mode)));
+  $('[data-google]')?.addEventListener('click', async () => { try { await Auth.google(); } catch (e) { fail(e.message); } });
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = f.email.value.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return fail('Enter a valid email address.');
+    if (f.password && f.password.value.length < 6) return fail('The password needs at least 6 characters.');
+    if (f.name && !f.name.value.trim()) return fail('Enter your name.');
+    const btn = $('button.primary', f); btn.disabled = true;
+    try {
+      if (mode === 'reset') {
+        await Auth.sendReset(email);
+        done('Check your email for a link to set a new password.');
+      } else if (mode === 'up') {
+        const res = await Auth.signUp(f.name.value.trim(), email, f.password.value);
+        if (!res.session) done('Almost done: check your email and click the link to confirm your account.');
+        else await afterCloudSignIn();
+      } else {
+        await Auth.signIn(email, f.password.value);
+        await afterCloudSignIn();
+      }
+    } catch (ex) {
+      fail(/invalid login/i.test(ex.message) ? 'Wrong email or password.'
+        : /already registered/i.test(ex.message) ? 'That email already has an account. Sign in instead.'
+        : /not confirmed/i.test(ex.message) ? 'Please confirm your email first: check your inbox for the link.'
+        : ex.message);
+    } finally { btn.disabled = false; }
+  });
+}
+const GOOGLE_G = '<svg class="g" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z" fill="#4285F4"/><path d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" fill="#34A853"/><path d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1a10 10 0 0 0 0 9.2z" fill="#FBBC05"/><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.4L6.4 10C7.2 7.7 9.4 6 12 6z" fill="#EA4335"/></svg>';
+
+async function afterCloudSignIn() {
+  const id = await Auth.currentUserId();
+  if (!id) { S.me = null; renderLogin(); return; }
+  await loadAll();
+  const me = S.users.find((u) => u.id === id);
+  if (!me || !me.active) { renderPending(me); return; }
+  S.me = me;
+  render();
+}
+
+function renderPending(me) {
+  S.me = null;
+  $('#app').innerHTML = `
+  <div class="login">
+    <div class="login-card">
+      <span class="logo lg">${ico('clock')}</span>
+      <h1>Waiting for access</h1>
+      <p class="muted">You're signed in${me ? ` as <b>${esc(me.email)}</b>` : ''}, but an admin still needs to give you access. Ask them to add you in <b>Admin → People</b>, then tap Check again.</p>
+      <div class="modal-actions"><button class="btn ghost" data-out>Sign out</button><button class="btn primary" data-reload>Check again</button></div>
+    </div>
+  </div>`;
+  $('[data-out]').onclick = () => signOut();
+  $('[data-reload]').onclick = () => afterCloudSignIn();
+}
+
+async function signOut() {
+  if (window.Editor) await Editor.flush();
+  if (CLOUD) await Auth.signOut();
+  localStorage.removeItem('sop-session');
+  S.me = null;
+  if (CLOUD) { S.users = []; S.sops = []; S.comments = []; imgCache.clear(); }
+  location.hash = '#/';
+  renderLogin();
 }
 
 /* ---------- Library (master list) ---------- */
@@ -367,13 +495,14 @@ function libraryView() {
   const f = S.filters;
   return `
   <header class="page-head">
-    <div><h1>Library</h1><p class="sub">Every recurring task, written down so anyone can do it.</p></div>
+    <div><h1>All tasks</h1><p class="sub">Every recurring task, written down so anyone can do it.</p></div>
     ${isAdmin() ? `<a class="btn ghost no-mobile" href="#/pack">${ico('print')} Handover pack</a>` : ''}
   </header>
   ${coverage()}
   <div class="filters">
     <label class="search">${ico('search')}<input id="q" type="search" placeholder="Search tasks and steps…" value="${esc(f.q)}" data-filter="q" autocomplete="off"><kbd>/</kbd></label>
     <div class="filter-row">
+      ${S.meta.accounts.length ? sel('account', 'All accounts', S.meta.accounts.map((x) => [x, x]), f.account) : ''}
       ${sel('owner', 'Everyone', owners().map((u) => [u.id, u.name]), f.owner)}
       ${sel('status', 'Any status', [...STATUSES.map((x) => [x, x]), ['due', 'Review due'], ['flagged', 'Has questions']], f.status)}
       ${sel('frequency', 'Any frequency', FREQ.map((x) => [x, x]), f.frequency)}
@@ -401,7 +530,7 @@ function coverage() {
 }
 
 function searchText(s) {
-  return [s.name, s.purpose, s.whenToDo, s.output, s.category, uname(s.ownerId), ...s.tools, ...s.mistakes, ...s.doneChecklist,
+  return [s.name, s.purpose, s.whenToDo, s.output, s.category, uname(s.ownerId), acctLabel(s), ...s.tools, ...s.mistakes, ...s.doneChecklist,
     ...s.links.map((l) => l.label), ...s.steps.flatMap((x) => [x.text, x.note, x.caption, x.linkLabel])].join('\n').toLowerCase();
 }
 
@@ -409,6 +538,7 @@ function filteredSops() {
   const f = S.filters;
   const terms = f.q.toLowerCase().split(/\s+/).filter(Boolean);
   return S.sops.filter(canView).filter((s) =>
+    (!f.account || s.accounts.includes(f.account) || s.accounts.includes('*')) &&
     (!f.owner || s.ownerId === f.owner) &&
     (!f.frequency || s.frequency === f.frequency) &&
     (!f.category || s.category === f.category) &&
@@ -448,7 +578,7 @@ function renderList() {
     ${list.map((s) => {
       const chk = s.status !== 'Published' ? checkSop(s) : null;
       return `<a class="tr" href="#/sop/${s.id}">
-        <span class="t-name"><b>${esc(s.name || 'Untitled task')}</b><small class="cat">${esc(s.category)}</small>${matchSnippet(s, terms)}</span>
+        <span class="t-name"><b>${esc(s.name || 'Untitled task')}</b><small class="cat">${acctLabel(s) ? `<span class="acct">${esc(acctLabel(s))}</span> · ` : ''}${esc(s.category)}</small>${matchSnippet(s, terms)}</span>
         <span class="t-owner">${avatar(s.ownerId, 'sm')}<span>${esc(uname(s.ownerId))}</span></span>
         <span class="t-freq">${esc(s.frequency)}</span>
         <span class="t-status">${statusPill(s, { flags: true })}${chk && s.status === 'Draft' ? `<span class="mini-bar" title="${chk.done} of ${chk.total} required parts filled"><i style="width:${(chk.done / chk.total) * 100}%"></i></span>` : ''}</span>
@@ -477,7 +607,7 @@ function mineView() {
   };
   const card = (s, showWhy) => `
     <a class="task-card" href="#/sop/${s.id}${showWhy && s.status !== 'Published' ? '/edit' : ''}">
-      <div><b>${esc(s.name || 'Untitled task')}</b><small>${esc(s.frequency)} · ${esc(s.category)}</small>${showWhy ? `<p class="why">${esc(why(s))}</p>` : ''}</div>
+      <div><b>${esc(s.name || 'Untitled task')}</b><small>${acctLabel(s) ? `${esc(acctLabel(s))} · ` : ''}${esc(s.frequency)} · ${esc(s.category)}</small>${showWhy ? `<p class="why">${esc(why(s))}</p>` : ''}</div>
       <div class="tc-right">${statusPill(s, { flags: true })}${ico('right', 'chev')}</div>
     </a>`;
 
@@ -509,12 +639,12 @@ function viewSop(s) {
 
   return `
   <article class="sop">
-    <div class="crumbs no-print"><a href="#/">${ico('left')} Library</a></div>
-    ${s.status === 'Needs update' ? `<div class="banner warn">${ico('alert')}<div><b>This SOP may be out of date.</b> Follow it with care and check with ${esc(uname(s.ownerId))}${s.backupId ? ` or ${esc(uname(s.backupId))}` : ''} if something doesn't match.</div></div>` : ''}
+    <div class="crumbs no-print"><a href="#/">${ico('left')} All tasks</a></div>
+    ${s.status === 'Needs update' ? `<div class="banner warn">${ico('alert')}<div><b>This guide may be out of date.</b> Follow it with care and check with ${esc(uname(s.ownerId))}${s.backupId ? ` or ${esc(uname(s.backupId))}` : ''} if something doesn't match.</div></div>` : ''}
     ${s.status === 'Draft' ? `<div class="banner">${ico('edit')}<div><b>Draft.</b> Not yet published, so readers can't see it.${edit ? ' Read it once as if you were new, then publish.' : ''}</div></div>` : ''}
     <header class="sop-head">
       <div class="sop-title">
-        <div class="pills">${statusPill(s)}<span class="pill soft">${esc(s.category)}</span></div>
+        <div class="pills">${statusPill(s)}${acctPills(s)}<span class="pill soft">${esc(s.category)}</span></div>
         <h1>${esc(s.name || 'Untitled task')}</h1>
         ${s.purpose ? `<p class="lead">${fmtText(s.purpose)}</p>` : ''}
       </div>
@@ -573,11 +703,11 @@ function viewSop(s) {
 
     ${s.output ? `<section class="block"><h2>${ico('download')} Output</h2><p>${fmtText(s.output)}</p></section>` : ''}
 
-    ${flags.filter((c) => !c.stepId).length ? `<section class="block no-print"><h2>${ico('msg')} Questions about this SOP</h2><div class="flags">${flags.filter((c) => !c.stepId).map((c) => flagHtml(c, s)).join('')}</div></section>` : ''}
+    ${flags.filter((c) => !c.stepId).length ? `<section class="block no-print"><h2>${ico('msg')} Questions about this guide</h2><div class="flags">${flags.filter((c) => !c.stepId).map((c) => flagHtml(c, s)).join('')}</div></section>` : ''}
 
     <footer class="sop-foot">
       Last updated ${fmtDate(s.updatedAt)} by ${esc(uname(s.updatedBy))} · Review by ${fmtDate(due)}
-      <button class="linkish no-print" data-action="flag" data-sop="${s.id}" data-step="">${ico('flag')} Ask a question about this SOP</button>
+      <button class="linkish no-print" data-action="flag" data-sop="${s.id}" data-step="">${ico('flag')} Ask a question about this guide</button>
     </footer>
   </article>`;
 }
@@ -588,7 +718,7 @@ function flagHtml(c, s) {
     ${canResolve ? `<button class="btn sm ghost" data-action="resolve-flag" data-id="${c.id}">${ico('check')} Resolve</button>` : ''}</div>`;
 }
 
-function mountSop(s) { document.title = `${s.name} · SOP Library`; }
+function mountSop(s) { document.title = `${s.name} · ${APP_NAME}`; }
 
 /* ---------- Follow-along mode ---------- */
 function renderFollow(s) {
@@ -665,65 +795,99 @@ let followKeys = null;
 /* ---------- Handover pack (print several SOPs) ---------- */
 async function renderPack(q) {
   const ownerId = q.get('owner') || '';
-  const list = S.sops.filter((s) => s.status !== 'Draft' && canView(s) && (!ownerId || s.ownerId === ownerId)).sort((a, b) => a.name.localeCompare(b.name));
+  const account = q.get('account') || '';
+  const list = S.sops.filter((s) => s.status !== 'Draft' && canView(s)
+    && (!ownerId || s.ownerId === ownerId)
+    && (!account || s.accounts.includes(account) || s.accounts.includes('*'))).sort((a, b) => a.name.localeCompare(b.name));
+  const scope = [account && `${esc(account)} account`, ownerId && `owned by ${esc(uname(ownerId))}`].filter(Boolean).join(', ');
   $('#app').innerHTML = `
   <div class="pack">
     <div class="pack-bar no-print">
       <a class="btn ghost" href="#/">${ico('left')} Back</a>
-      <select id="pack-owner"><option value="">Everyone</option>${owners().map((u) => `<option value="${u.id}" ${u.id === ownerId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+      ${S.meta.accounts.length ? `<select id="pack-account" aria-label="Account"><option value="">All accounts</option>${S.meta.accounts.map((a) => `<option ${a === account ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select>` : ''}
+      <select id="pack-owner" aria-label="Owner"><option value="">Everyone</option>${owners().map((u) => `<option value="${u.id}" ${u.id === ownerId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
       <button class="btn primary" data-action="print">${ico('print')} Print / Save as PDF</button>
     </div>
     <section class="pack-cover">
-      <span class="logo lg">${ico('list')}</span>
+      ${heroMark()}
       <h1>Handover pack</h1>
-      <p class="lead">${ownerId ? `Tasks owned by ${esc(uname(ownerId))}` : 'All published tasks'} · ${fmtDate(now())}</p>
-      <ol class="toc">${list.map((s) => `<li><span>${esc(s.name)}</span><small>${esc(s.frequency)} · ${esc(uname(s.ownerId))}</small></li>`).join('')}</ol>
-      ${list.length ? '' : '<p class="muted">No published SOPs yet.</p>'}
+      <p class="lead">${scope ? `Task guides: ${scope}` : 'All published task guides'} · ${fmtDate(now())}</p>
+      <ol class="toc">${list.map((s) => `<li><span>${esc(s.name)}</span><small>${acctLabel(s) ? `${esc(acctLabel(s))} · ` : ''}${esc(s.frequency)} · ${esc(uname(s.ownerId))}</small></li>`).join('')}</ol>
+      ${list.length ? '' : '<p class="muted">No published guides match.</p>'}
     </section>
     ${list.map((s) => `<div class="pack-sop">${viewSop(s)}</div>`).join('')}
   </div>`;
-  $('#pack-owner').onchange = (e) => go('#/pack' + (e.target.value ? `?owner=${e.target.value}` : ''));
+  const repack = () => {
+    const p = new URLSearchParams();
+    const a = $('#pack-account')?.value, o = $('#pack-owner').value;
+    if (a) p.set('account', a);
+    if (o) p.set('owner', o);
+    go('#/pack' + (p.toString() ? `?${p}` : ''));
+  };
+  $('#pack-owner').onchange = repack;
+  if ($('#pack-account')) $('#pack-account').onchange = repack;
   await hydrateImages($('#app'));
 }
 
 /* ---------- Admin ---------- */
 function adminView(q) {
   const tab = q.get('tab') || 'users';
-  const tabs = [['users', 'users', 'People'], ['categories', 'tag', 'Categories'], ['data', 'download', 'Backup & export']];
+  const tabs = [['users', 'users', 'People'], ['lists', 'tag', 'Accounts & categories'], ['data', 'download', 'Backup & export']];
   let body = '';
   if (tab === 'users') {
     const list = [...S.users].sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
+    const waiting = list.filter((u) => !u.active && !S.sops.some((s) => s.ownerId === u.id));
     body = `
+    ${CLOUD && waiting.length ? `<div class="banner warn">${ico('clock')}<div><b>${waiting.length} ${waiting.length === 1 ? 'person is' : 'people are'} waiting for access.</b> Choose their role, then tap <b>Give access</b>.</div></div>` : ''}
     <div class="table users">
       <div class="tr th"><span>Person</span><span>Role</span><span>Tasks</span><span></span></div>
       ${list.map((u) => `
       <div class="tr ${u.active ? '' : 'inactive'}">
-        <span class="t-name">${avatar(u.id, 'sm')}<span><b>${esc(u.name)}</b><small>${esc(u.email)}${u.active ? '' : ' · deactivated'}</small></span></span>
+        <span class="t-name">${avatar(u.id, 'sm')}<span><b>${esc(u.name)}</b><small>${esc(u.email)}${u.active ? '' : CLOUD ? ' · no access' : ' · deactivated'}</small></span></span>
         <span><select data-action-change="set-role" data-id="${u.id}" ${u.id === S.me.id ? 'disabled' : ''}>${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select></span>
         <span>${S.sops.filter((s) => s.ownerId === u.id).length}</span>
         <span class="row-actions">
+          ${u.active ? '' : `<button class="btn sm primary" data-action="activate" data-id="${u.id}">${ico('check')}<span>Give access</span></button>`}
           <button class="btn sm ghost" data-action="edit-user" data-id="${u.id}">${ico('edit')}<span>Edit</span></button>
           <button class="btn sm ghost" data-action="handover" data-id="${u.id}">${ico('swap')}<span>Hand over</span></button>
         </span>
       </div>`).join('')}
+      ${(S.invites || []).map((iv) => `
+      <div class="tr invited">
+        <span class="t-name"><span class="avatar sm ghost">${ico('msg')}</span><span><b>${esc(iv.name)}</b><small>${esc(iv.email)} · invited, hasn't signed up yet</small></span></span>
+        <span>${ROLES[iv.role]}</span>
+        <span>—</span>
+        <span class="row-actions">
+          <button class="btn sm ghost" data-action="copy-invite" data-email="${esc(iv.email)}">${ico('copy')}<span>Copy invite</span></button>
+          <button class="btn sm ghost danger-text" data-action="revoke-invite" data-email="${esc(iv.email)}">${ico('x')}<span>Cancel</span></button>
+        </span>
+      </div>`).join('')}
     </div>
-    <button class="btn primary" data-action="edit-user">${ico('plus')} Add person</button>`;
-  } else if (tab === 'categories') {
-    body = `
-    <p class="muted">Categories group tasks in the library. Removing one doesn't change existing tasks.</p>
-    <div class="chips">${S.meta.categories.map((c, i) => `<span class="chip">${esc(c)} <small>${S.sops.filter((s) => s.category === c).length}</small><button data-action="del-cat" data-i="${i}" aria-label="Remove ${esc(c)}">${ico('x')}</button></span>`).join('')}</div>
-    <form class="inline-form" id="cat-form"><input name="cat" placeholder="New category" required><button class="btn">${ico('plus')} Add</button></form>`;
+    <button class="btn primary" data-action="edit-user">${ico('plus')} Add person</button>
+    ${CLOUD ? `<p class="muted small" style="margin-top:.8rem">New people sign up at <b>${esc(appUrl())}</b> with the email you add here (or Continue with Google) and get their role straight away.</p>` : ''}`;
+  } else if (tab === 'lists') {
+    const listEditor = (key, title, help, placeholder, count) => `
+    <section class="list-block">
+      <h2>${title}</h2>
+      <p class="muted">${help}</p>
+      <div class="chips">${S.meta[key].map((c, i) => `<span class="chip">${esc(c)} <small title="Tasks using it">${count(c)}</small><button data-action="del-item" data-key="${key}" data-i="${i}" aria-label="Remove ${esc(c)}">${ico('x')}</button></span>`).join('') || '<span class="muted small">None yet.</span>'}</div>
+      <form class="inline-form item-form" data-key="${key}"><input name="item" placeholder="${placeholder}" required><button class="btn">${ico('plus')} Add</button></form>
+    </section>`;
+    body = listEditor('accounts', 'Accounts', 'The separate accounts the team looks after. Each task guide says which account(s) it is for, so someone covering can filter to just that account.', "e.g. Father's House", (c) => S.sops.filter((s) => s.accounts.includes(c)).length)
+      + listEditor('categories', 'Categories', 'The kinds of work, used to group and filter tasks. Removing one doesn\'t change existing tasks.', 'e.g. Bank transfers', (c) => S.sops.filter((s) => s.category === c).length);
   } else {
     body = `
     <div class="cards">
-      <div class="card-action"><div>${ico('print')}<b>Handover pack</b><p class="muted">Print every published SOP, or one person's, as a single PDF.</p></div><a class="btn" href="#/pack">Open</a></div>
-      <div class="card-action"><div>${ico('download')}<b>Download a full backup</b><p class="muted">One file with every SOP, screenshot, person and version. Keep it somewhere safe.</p></div><button class="btn" data-action="export">Download</button></div>
-      <div class="card-action"><div>${ico('upload')}<b>Restore from a backup</b><p class="muted">Replaces everything in this app with the contents of a backup file.</p></div><label class="btn">Choose file<input type="file" accept=".json,application/json" data-action-change="import" hidden></label></div>
-      <div class="card-action danger"><div>${ico('trash')}<b>Reset to demo data</b><p class="muted">Deletes everything and reloads the example team.</p></div><button class="btn danger" data-action="reset">Reset</button></div>
+      <div class="card-action"><div>${ico('print')}<b>Handover pack</b><p class="muted">Print every published guide, or one person's or one account's, as a single PDF.</p></div><a class="btn" href="#/pack">Open</a></div>
+      <div class="card-action"><div>${ico('download')}<b>Download a full backup</b><p class="muted">One file with every guide, screenshot, person and version. Keep it somewhere safe.</p></div><button class="btn" data-action="export">Download</button></div>
+      ${CLOUD
+        ? `<div class="card-action"><div>${ico('upload')}<b>Import guides from a backup</b><p class="muted">Adds the guides and screenshots from a backup file, for example one made while trying the app on your own computer. Owners are matched by email; anyone not found becomes you.</p></div><label class="btn">Choose file<input type="file" accept=".json,application/json" data-action-change="import" hidden></label></div>`
+        : `<div class="card-action"><div>${ico('upload')}<b>Restore from a backup</b><p class="muted">Replaces everything in this app with the contents of a backup file.</p></div><label class="btn">Choose file<input type="file" accept=".json,application/json" data-action-change="import" hidden></label></div>
+      <div class="card-action danger"><div>${ico('trash')}<b>Reset to demo data</b><p class="muted">Deletes everything and reloads the example team.</p></div><button class="btn danger" data-action="reset">Reset</button></div>`}
     </div>`;
   }
   return `
-  <header class="page-head"><div><h1>Admin</h1><p class="sub">People, categories and backups.</p></div></header>
+  <header class="page-head"><div><h1>Admin</h1><p class="sub">People, accounts, categories and backups.</p></div></header>
   <nav class="tabs">${tabs.map(([k, i, l]) => `<a href="#/admin?tab=${k}" class="${tab === k ? 'on' : ''}">${ico(i)} ${l}</a>`).join('')}</nav>
   <section class="admin-body">${body}</section>`;
 }
@@ -733,7 +897,7 @@ const actions = {
   'new-task': () => newTaskModal(),
   'bulk-add': () => bulkAddModal(),
   'print': () => window.print(),
-  'clear-filters': () => { S.filters = { q: '', owner: '', status: '', frequency: '', category: '' }; render(); },
+  'clear-filters': () => { S.filters = { q: '', account: '', owner: '', status: '', frequency: '', category: '' }; render(); },
   'filter-owner': (el) => { S.filters.owner = S.filters.owner === el.dataset.id ? '' : el.dataset.id; render(); },
   'me-menu': () => meMenu(),
   'zoom': (el) => modal(`<div class="lightbox"><img src="${el.src}" alt=""><button class="btn icon" data-close aria-label="Close">${ico('x')}</button></div>`, { wide: true }),
@@ -746,14 +910,25 @@ const actions = {
   'sop-more': (el) => sopMoreMenu(sopById(el.dataset.id)),
   'edit-user': (el) => userModal(el.dataset.id ? user(el.dataset.id) : null),
   'handover': (el) => handoverModal(user(el.dataset.id)),
-  'del-cat': async (el) => {
-    const c = S.meta.categories[+el.dataset.i];
-    if (!(await ask(`Remove "${c}"?`, 'Existing tasks keep this category until they are edited.', { ok: 'Remove', danger: true }))) return;
-    S.meta.categories.splice(+el.dataset.i, 1); await saveMeta(); render();
+  'del-item': async (el) => {
+    const key = el.dataset.key, c = S.meta[key][+el.dataset.i];
+    if (!(await ask(`Remove "${c}"?`, key === 'accounts' ? 'Task guides that mention this account keep it until they are edited.' : 'Existing tasks keep this category until they are edited.', { ok: 'Remove', danger: true }))) return;
+    S.meta[key].splice(+el.dataset.i, 1); await saveMeta(); render();
   },
   'export': () => exportBackup(),
+  'activate': async (el) => { const u = user(el.dataset.id); u.active = true; await saveUser(u); toast(`${u.name} can now sign in as ${ROLES[u.role]}`); render(); },
+  'copy-invite': (el) => {
+    const iv = S.invites.find((x) => x.email === el.dataset.email);
+    const text = `Hi ${iv.name}, you've been added to our ${APP_NAME}. Open ${appUrl()} and choose "Create an account" (or "Continue with Google") using ${iv.email}.`;
+    navigator.clipboard?.writeText(text);
+    toast('Invite message copied. Paste it into WhatsApp or email.');
+  },
+  'revoke-invite': async (el) => {
+    if (!(await ask('Cancel this invite?', `${el.dataset.email} will no longer get access automatically when they sign up.`, { ok: 'Cancel invite', danger: true, cancel: 'Keep' }))) return;
+    await DB.del('invites', el.dataset.email); S.invites = S.invites.filter((x) => x.email !== el.dataset.email); render();
+  },
   'reset': async () => {
-    if (!(await ask('Reset everything?', 'All SOPs, people and screenshots in this browser will be deleted and replaced with the demo team. Download a backup first if you need it.', { ok: 'Delete and reset', danger: true }))) return;
+    if (!(await ask('Reset everything?', 'All guides, people and screenshots in this browser will be deleted and replaced with the demo team. Download a backup first if you need it.', { ok: 'Delete and reset', danger: true }))) return;
     for (const s of DB.STORES) await DB.clear(s);
     imgCache.clear(); localStorage.removeItem('sop-session');
     await seedDemoData(); await loadAll(); S.me = null; go('#/'); render();
@@ -776,8 +951,9 @@ function newTaskModal() {
   <form class="modal-body" id="nt">
     <h2>New task</h2>
     <p class="muted">Start with the basics. You'll add the steps on the next screen.</p>
-    <label class="field"><span>Task name</span><input name="name" required placeholder='e.g. "Update weekly attendance sheet"' autofocus></label>
-    <div class="grid2">
+    <label class="field"><span>Task name</span><input name="name" required placeholder='e.g. "Count and deposit the Sunday offering"' autofocus></label>
+    ${acctPicker(S.filters.account ? [S.filters.account] : S.meta.accounts.length === 1 ? [S.meta.accounts[0]] : [])}
+    <div class="${isAdmin() ? 'grid3' : 'grid2'}">
       ${isAdmin() ? `<label class="field"><span>Owner</span><select name="ownerId">${ownerOptions(S.me.id)}</select></label>` : ''}
       <label class="field"><span>How often</span><select name="frequency">${FREQ.map((f) => `<option ${f === 'Weekly' ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       <label class="field"><span>Category</span><select name="category">${S.meta.categories.map((c) => `<option>${esc(c)}</option>`).join('')}</select></label>
@@ -792,7 +968,7 @@ function newTaskModal() {
     const from = f.get('from') && sopById(f.get('from'));
     if (from) s = duplicateOf(from);
     else s = newSop({});
-    Object.assign(s, { name: f.get('name').trim(), frequency: f.get('frequency'), category: f.get('category'), ownerId: f.get('ownerId') || S.me.id });
+    Object.assign(s, { name: f.get('name').trim(), frequency: f.get('frequency'), category: f.get('category'), ownerId: f.get('ownerId') || S.me.id, accounts: pickedAccounts(e.target) });
     await saveSop(s);
     d.close();
     go(`#/sop/${s.id}/edit`);
@@ -817,14 +993,16 @@ function bulkAddModal() {
       <label class="field"><span>Default frequency</span><select name="frequency">${FREQ.map((f) => `<option ${f === 'Weekly' ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       <label class="field"><span>Default category</span><select name="category">${S.meta.categories.map((c) => `<option>${esc(c)}</option>`).join('')}</select></label>
     </div>
-    <label class="field"><span>Tasks</span><textarea name="list" rows="8" required placeholder="Pay electricity bill&#10;Send monthly newsletter&#10;Update leave register"></textarea></label>
+    ${acctPicker(S.filters.account ? [S.filters.account] : [])}
+    <label class="field"><span>Tasks</span><textarea name="list" rows="8" required placeholder="Pay the electricity bill&#10;Process reimbursement requests&#10;Tally the cash book with the bank statement"></textarea></label>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Add tasks</button></div>
   </form>`);
   $('#ba', d).addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
     const names = f.get('list').split('\n').map((x) => x.replace(/^[\s\-*•\d.)]+/, '').trim()).filter(Boolean);
-    for (const name of names) await saveSop(newSop({ name, ownerId: f.get('ownerId') || S.me.id, frequency: f.get('frequency'), category: f.get('category') }));
+    const accounts = pickedAccounts(e.target);
+    for (const name of names) await saveSop(newSop({ name, ownerId: f.get('ownerId') || S.me.id, frequency: f.get('frequency'), category: f.get('category'), accounts }));
     d.close(); toast(`${names.length} task${names.length === 1 ? '' : 's'} added as drafts`); render();
   });
 }
@@ -834,10 +1012,10 @@ function flagModal(sopId, stepId) {
   const idx = s.steps.filter((st) => st.text.trim() || st.imageId).findIndex((st) => st.id === stepId);
   const d = modal(`
   <form class="modal-body" id="fl">
-    <h2>${stepId ? `Something unclear in step ${idx + 1}?` : 'Ask about this SOP'}</h2>
-    <p class="muted">${esc(uname(s.ownerId))} will see this on their task list and can fix the SOP.</p>
+    <h2>${stepId ? `Something unclear in step ${idx + 1}?` : 'Ask about this guide'}</h2>
+    <p class="muted">${esc(uname(s.ownerId))} will see this on their task list and can fix the guide.</p>
     <label class="field"><span>What's unclear or wrong?</span><textarea name="text" rows="4" required autofocus placeholder="e.g. The button in the screenshot is now called 'Export', not 'Download'."></textarea></label>
-    ${canEdit(s) && s.status === 'Published' ? `<label class="check"><input type="checkbox" name="mark"> Also mark this SOP as <b>Needs update</b></label>` : ''}
+    ${canEdit(s) && s.status === 'Published' ? `<label class="check"><input type="checkbox" name="mark"> Also mark this guide as <b>Needs update</b></label>` : ''}
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${ico('flag')} Send</button></div>
   </form>`);
   $('#fl', d).addEventListener('submit', async (e) => {
@@ -867,14 +1045,14 @@ function sopMoreMenu(s) {
   }
   items.push({ key: 'copy', icon: 'link', label: 'Copy link', run: () => { navigator.clipboard?.writeText(location.href); toast('Link copied'); } });
   if (isAdmin() || (edit && s.status === 'Draft')) items.push('-', { key: 'del', icon: 'trash', label: 'Delete task', danger: true, run: async () => {
-    if (!(await ask(`Delete "${s.name}"?`, 'This removes the SOP and its history. This cannot be undone.', { ok: 'Delete', danger: true }))) return;
+    if (!(await ask(`Delete "${s.name}"?`, 'This removes the guide and its history. This cannot be undone.', { ok: 'Delete', danger: true }))) return;
     await DB.del('sops', s.id); S.sops = S.sops.filter((x) => x.id !== s.id); toast('Deleted'); go('#/');
   } });
   menu(items);
 }
 
 async function historyModal(s) {
-  const versions = (await DB.all('versions')).filter((v) => v.sopId === s.id).sort((a, b) => b.at.localeCompare(a.at));
+  const versions = (await DB.where('versions', 'sopId', s.id)).sort((a, b) => b.at.localeCompare(a.at));
   const d = modal(`
   <div class="modal-body">
     <h2>Version history</h2>
@@ -898,15 +1076,16 @@ async function historyModal(s) {
 function meMenu() {
   menu([
     { key: 'pw', icon: 'key', label: 'Change my password', run: () => passwordModal(S.me, true) },
-    { key: 'out', icon: 'logout', label: 'Sign out', run: () => { localStorage.removeItem('sop-session'); S.me = null; go('#/'); render(); } },
+    { key: 'out', icon: 'logout', label: 'Sign out', run: () => signOut() },
   ]);
 }
 
-function passwordModal(u, self) {
+function passwordModal(u, self, { recovery = false } = {}) {
+  const askOld = self && !CLOUD;
   const d = modal(`
   <form class="modal-body" id="pw">
-    <h2>${self ? 'Change your password' : `Set a new password for ${esc(u.name)}`}</h2>
-    ${self ? '<label class="field"><span>Current password</span><input name="old" type="password" required autocomplete="current-password"></label>' : ''}
+    <h2>${recovery ? 'Set a new password' : self ? 'Change your password' : `Set a new password for ${esc(u.name)}`}</h2>
+    ${askOld ? '<label class="field"><span>Current password</span><input name="old" type="password" required autocomplete="current-password"></label>' : ''}
     <label class="field"><span>New password</span><input name="pw" type="password" minlength="6" required autocomplete="new-password"></label>
     <p class="error" hidden></p>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
@@ -914,7 +1093,12 @@ function passwordModal(u, self) {
   $('#pw', d).addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    if (self && (await hashPassword(f.old.value, u.salt)) !== u.hash) { const er = $('.error', d); er.textContent = 'Current password is wrong.'; er.hidden = false; return; }
+    const er = $('.error', d);
+    if (CLOUD) {
+      try { await Auth.setPassword(f.pw.value); } catch (ex) { er.textContent = ex.message; er.hidden = false; return; }
+      d.close(); toast('Password updated'); return;
+    }
+    if (askOld && (await hashPassword(f.old.value, u.salt)) !== u.hash) { er.textContent = 'Current password is wrong.'; er.hidden = false; return; }
     u.salt = uid(); u.hash = await hashPassword(f.pw.value, u.salt);
     await saveUser(u); d.close(); toast('Password updated');
   });
@@ -926,11 +1110,12 @@ function userModal(u) {
   <form class="modal-body" id="um">
     <h2>${isNew ? 'Add a person' : `Edit ${esc(u.name)}`}</h2>
     <label class="field"><span>Name</span><input name="name" required value="${esc(u?.name || '')}" autofocus></label>
-    <label class="field"><span>Email</span><input name="email" type="email" required value="${esc(u?.email || '')}"></label>
+    <label class="field"><span>Email</span><input name="email" type="email" required value="${esc(u?.email || '')}" ${CLOUD && !isNew ? 'disabled' : ''}>${CLOUD && !isNew ? '<small class="hint">This is the email they sign in with, so it can\'t be changed here.</small>' : ''}</label>
     <label class="field"><span>Role</span><select name="role" ${u?.id === S.me.id ? 'disabled' : ''}>
-      ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${(u?.role || 'owner') === k ? 'selected' : ''}>${v} — ${{ admin: 'manages people and can edit everything', owner: 'writes and edits their own SOPs', reader: 'reads and prints published SOPs' }[k]}</option>`).join('')}
+      ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${(u?.role || 'owner') === k ? 'selected' : ''}>${v} — ${{ admin: 'manages people and can edit everything', owner: 'writes and edits their own task guides', reader: 'reads and prints published guides' }[k]}</option>`).join('')}
     </select></label>
-    ${isNew ? '<label class="field"><span>Temporary password</span><input name="pw" required minlength="6" value="welcome1"><small class="hint">Share it with them; they can change it after signing in.</small></label>' : ''}
+    ${isNew && !CLOUD ? '<label class="field"><span>Temporary password</span><input name="pw" required minlength="6" value="welcome1"><small class="hint">Share it with them; they can change it after signing in.</small></label>' : ''}
+    ${isNew && CLOUD ? '<p class="muted small">They\'ll get this role as soon as they create an account with this email, or use Continue with Google. You can copy an invite message afterwards.</p>' : ''}
     <p class="error" hidden></p>
     <div class="modal-actions spread">
       ${!isNew && u.id !== S.me.id ? `<div><button type="button" class="btn ghost ${u.active ? 'danger-text' : ''}" data-toggle>${u.active ? 'Deactivate' : 'Reactivate'}</button><button type="button" class="btn ghost" data-reset>Reset password</button></div>` : '<span></span>'}
@@ -940,8 +1125,16 @@ function userModal(u) {
   const f = $('#um', d);
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = f.email.value.trim().toLowerCase();
-    if (S.users.some((x) => x.email.toLowerCase() === email && x.id !== u?.id)) { const er = $('.error', d); er.textContent = 'Someone already uses that email.'; er.hidden = false; return; }
+    const email = (u && CLOUD ? u.email : f.email.value).trim().toLowerCase();
+    const er = $('.error', d);
+    if (S.users.some((x) => x.email.toLowerCase() === email && x.id !== u?.id)) { er.textContent = 'Someone already uses that email.'; er.hidden = false; return; }
+    if (isNew && CLOUD) {
+      const iv = { email, name: f.name.value.trim(), role: f.role.value, invitedBy: S.me.id };
+      try { await DB.put('invites', iv); } catch (ex) { er.textContent = ex.message; er.hidden = false; return; }
+      S.invites = [...(S.invites || []).filter((x) => x.email !== email), iv];
+      d.close(); toast(`${iv.name} added. Copy the invite to send them the link.`); render();
+      return;
+    }
     const x = u ? { ...u } : { id: uid('u_'), active: true, createdAt: now(), salt: uid() };
     x.name = f.name.value.trim(); x.email = email;
     if (f.role && !f.role.disabled) x.role = f.role.value;
@@ -951,10 +1144,14 @@ function userModal(u) {
     d.close(); toast(isNew ? `${x.name} added` : 'Saved'); render();
   });
   $('[data-toggle]', d)?.addEventListener('click', async () => {
-    if (u.active && !(await ask(`Deactivate ${u.name}?`, 'They will no longer be able to sign in. Their SOPs stay in the library. Use "Hand over" to give their tasks to someone else.', { ok: 'Deactivate', danger: true }))) return;
+    if (u.active && !(await ask(`Deactivate ${u.name}?`, 'They will no longer be able to sign in. Their guides stay in the handbook. Use "Hand over" to give their tasks to someone else.', { ok: 'Deactivate', danger: true }))) return;
     u.active = !u.active; await saveUser(u); d.close(); render();
   });
-  $('[data-reset]', d)?.addEventListener('click', () => { d.close(); passwordModal(u, false); });
+  $('[data-reset]', d)?.addEventListener('click', async () => {
+    d.close();
+    if (!CLOUD) { passwordModal(u, false); return; }
+    try { await Auth.sendReset(u.email); toast(`Password reset email sent to ${u.email}`); } catch (ex) { toast(ex.message, 'err'); }
+  });
 }
 
 function handoverModal(from) {
@@ -996,8 +1193,9 @@ async function importBackup(file) {
   if (!file) return;
   let data;
   try { data = JSON.parse(await file.text()); } catch { toast('That file is not a valid backup', 'err'); return; }
-  if (data.app !== 'sop-library' || !Array.isArray(data.sops) || !Array.isArray(data.users)) { toast('That file is not an SOP Library backup', 'err'); return; }
-  if (!(await ask('Restore this backup?', `It has ${data.sops.length} SOPs and ${data.users.length} people, from ${fmtDate(data.exportedAt)}. Everything currently in the app will be replaced.`, { ok: 'Replace and restore', danger: true }))) return;
+  if (data.app !== 'sop-library' || !Array.isArray(data.sops) || !Array.isArray(data.users)) { toast('That file is not a backup from this app', 'err'); return; }
+  if (CLOUD) { await importIntoCloud(data); return; }
+  if (!(await ask('Restore this backup?', `It has ${data.sops.length} guides and ${data.users.length} people, from ${fmtDate(data.exportedAt)}. Everything currently in the app will be replaced.`, { ok: 'Replace and restore', danger: true }))) return;
   for (const s of DB.STORES) { await DB.clear(s); if (Array.isArray(data[s])) await DB.putMany(s, data[s]); }
   imgCache.clear(); await loadAll();
   S.me = S.users.find((u) => u.id === S.me.id && u.active) || null;
@@ -1005,11 +1203,76 @@ async function importBackup(file) {
   toast('Backup restored'); go('#/'); render();
 }
 
+/* Shared library: add SOPs from a backup without touching what's already there.
+   People are matched by email, because ids differ between installs. */
+async function importIntoCloud(data) {
+  const byEmail = (oldId) => {
+    const old = data.users.find((u) => u.id === oldId);
+    return old && S.users.find((u) => u.email.toLowerCase() === old.email.toLowerCase())?.id;
+  };
+  const sops = data.sops.filter((s) => !(s.status === 'Draft' && !s.steps.some((x) => x.text.trim())));
+  const skipped = data.sops.length - sops.length;
+  if (!(await ask(`Import ${sops.length} guide${sops.length === 1 ? '' : 's'}?`,
+    `Owners are matched by email; guides whose owner isn't here yet are given to you.${skipped ? ` ${skipped} empty draft${skipped === 1 ? '' : 's'} will be skipped.` : ''} Guides that already exist are updated.`, { ok: 'Import' }))) return;
+  const images = new Map((data.images || []).map((i) => [i.id, i.data]));
+  // Bring over account and category names the guides use
+  const meta = (data.meta || []).find((m) => m.id === 'settings');
+  let metaChanged = false;
+  for (const k of ['accounts', 'categories']) {
+    for (const v of meta?.[k] || []) if (!S.meta[k].includes(v)) { S.meta[k].push(v); metaChanged = true; }
+  }
+  if (metaChanged) await saveMeta();
+  let done = 0;
+  toast('Importing… keep this page open');
+  for (const s of sops) {
+    const x = clone(s);
+    x.ownerId = byEmail(s.ownerId) || S.me.id;
+    x.backupId = byEmail(s.backupId) || '';
+    x.updatedBy = S.me.id;
+    for (const st of x.steps) {
+      if (!st.imageId) continue;
+      if (!images.has(st.imageId)) { st.imageId = ''; continue; }
+      const newId = uid('img_');
+      await DB.put('images', { id: newId, data: images.get(st.imageId) });
+      st.imageId = newId;
+    }
+    await DB.put('sops', x);
+    done++;
+  }
+  await loadAll();
+  toast(`${done} guide${done === 1 ? '' : 's'} imported`); go('#/'); render();
+}
+
+const appUrl = () => location.origin + location.pathname;
+
 /* ---------- Boot ---------- */
 async function loadAll() {
   [S.users, S.sops, S.comments] = await Promise.all([DB.all('users'), DB.all('sops'), DB.all('comments')]);
-  S.meta = (await DB.get('meta', 'settings')) || { id: 'settings', categories: ['Admin', 'Finance', 'Communication', 'Operations', 'Other'] };
+  S.meta = (await DB.get('meta', 'settings')) || { id: 'settings', categories: ['Cash', 'Bank transfers', 'Reimbursements', 'Invoices & bills', 'Tallying & reconciliation', 'Records & reports', 'Other'] };
+  S.meta.categories = S.meta.categories || [];
+  S.meta.accounts = S.meta.accounts || [];
+  S.sops.forEach((s) => { s.accounts = s.accounts || []; });
+  S.invites = CLOUD ? await DB.all('invites').catch(() => []) : [];
+  if (S.me) S.me = S.users.find((u) => u.id === S.me.id) || S.me;
 }
+
+/* Any failed save or load shows a message instead of failing silently. */
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = String(e.reason?.message || e.reason || 'Something went wrong');
+  toast(/fetch|network/i.test(msg) ? "Couldn't reach the server. Check your internet connection and try again." : /row-level security|permission/i.test(msg) ? "You don't have permission to do that." : msg, 'err');
+});
+
+/* Shared library: pick up teammates' changes when you come back to the tab. */
+let lastRefresh = Date.now();
+document.addEventListener('visibilitychange', async () => {
+  if (!CLOUD || document.hidden || !S.me || Date.now() - lastRefresh < 15000) return;
+  const { parts } = route();
+  if (parts[2] === 'edit' || parts[2] === 'follow' || $('dialog[open]')) return;
+  lastRefresh = Date.now();
+  await loadAll();
+  if (!S.me.active) { renderPending(S.me); return; }
+  if (parts[0] === 'sop' || parts[0] === 'mine' || parts[0] === 'admin' || !parts.length) render();
+});
 
 document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-action]');
@@ -1025,10 +1288,10 @@ document.addEventListener('input', (e) => {
   if (e.target.matches('input[data-filter="q"]')) { S.filters.q = e.target.value; renderList(); }
 });
 document.addEventListener('submit', async (e) => {
-  if (e.target.id === 'cat-form') {
+  if (e.target.matches('.item-form')) {
     e.preventDefault();
-    const v = e.target.cat.value.trim();
-    if (v && !S.meta.categories.includes(v)) { S.meta.categories.push(v); await saveMeta(); render(); }
+    const key = e.target.dataset.key, v = e.target.item.value.trim();
+    if (v && !S.meta[key].some((x) => x.toLowerCase() === v.toLowerCase())) { S.meta[key].push(v); await saveMeta(); render(); }
   }
 });
 document.addEventListener('keydown', (e) => {
@@ -1041,6 +1304,17 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('hashchange', render);
 
 (async function boot() {
+  if (CLOUD) {
+    if (!sb) {
+      $('#app').innerHTML = `<div class="empty big">${ico('alert')}<h2>Couldn't load</h2><p>The sign-in library didn't load. Check your internet connection and reload.</p></div>`;
+      return;
+    }
+    Auth.onRecovery(() => setTimeout(() => passwordModal(S.me, true, { recovery: true }), 300));
+    try { await afterCloudSignIn(); } catch (err) {
+      $('#app').innerHTML = `<div class="empty big">${ico('alert')}<h2>Couldn't connect</h2><p>${esc(err.message)}</p><button class="btn" onclick="location.reload()">Try again</button></div>`;
+    }
+    return;
+  }
   try {
     if (!(await DB.all('users')).length) await seedDemoData();
     await loadAll();

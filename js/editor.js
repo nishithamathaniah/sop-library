@@ -20,10 +20,17 @@ const Editor = (() => {
     <div class="ed-grid">
       <div class="ed-main">
         <div class="ed-titlebar">
-          <input class="title-input" id="f-name" data-f="name" value="${esc(s.name)}" placeholder="Task name, e.g. Update weekly attendance sheet" aria-label="Task name">
+          <input class="title-input" id="f-name" data-f="name" value="${esc(s.name)}" placeholder="Task name, e.g. Count and deposit the Sunday offering" aria-label="Task name">
         </div>
 
         <section class="card">
+          ${S.meta.accounts.length ? `
+          <div class="field" id="f-accounts"><span>Which account${S.meta.accounts.length > 1 ? '(s)' : ''} is this for? <em>required</em></span>
+            <div class="picks">
+              ${S.meta.accounts.map((a) => `<label class="pick"><input type="checkbox" data-acct="${esc(a)}" ${!s.accounts.includes('*') && s.accounts.includes(a) ? 'checked' : ''}><span>${esc(a)}</span></label>`).join('')}
+              ${S.meta.accounts.length > 1 ? `<label class="pick all"><input type="checkbox" data-acct="*" ${s.accounts.includes('*') ? 'checked' : ''}><span>All accounts</span></label>` : ''}
+            </div>
+          </div>` : ''}
           <div class="grid3">
             <label class="field" id="f-owner"><span>Owner</span>
               ${isAdmin() ? `<select data-f="ownerId">${ownerOptions(s.ownerId)}</select>` : `<div class="static">${avatar(s.ownerId, 'xs')} ${esc(uname(s.ownerId))}</div>`}
@@ -51,7 +58,7 @@ const Editor = (() => {
             ${secretHint()}
           </label>
           <label class="field secret-scope" id="f-when"><span>When to do it <em>required</em></span>
-            <input data-f="whenToDo" value="${esc(s.whenToDo)}" placeholder='e.g. "Every Friday before 5 pm" or "When a parent asks for a refund"'>
+            <input data-f="whenToDo" value="${esc(s.whenToDo)}" placeholder='e.g. "Every Sunday after the last service" or "When a ministry leader submits a bill"'>
             ${secretHint()}
           </label>
           <div class="field secret-scope" id="f-tools"><span>Tools and access needed <em>required</em></span>
@@ -69,7 +76,7 @@ const Editor = (() => {
         <section class="card">
           <h2 class="card-title"><span class="n">3</span> Finish</h2>
           <div class="field secret-scope" id="f-done"><span>How to know it's done <em>required</em></span>
-            ${listEd('doneChecklist', 'e.g. Link sent to the principal', 'Add check', 'box')}
+            ${listEd('doneChecklist', 'e.g. Deposit slip filed in the Offerings folder', 'Add check', 'box')}
             ${secretHint()}
           </div>
           <div class="field secret-scope"><span>Common mistakes</span>
@@ -87,7 +94,7 @@ const Editor = (() => {
           <div class="links-ed">
             ${s.links.map((l, i) => `
             <div class="link-row">
-              <input data-lk="${i}" data-lf="label" value="${esc(l.label)}" placeholder="Name, e.g. Fees folder">
+              <input data-lk="${i}" data-lf="label" value="${esc(l.label)}" placeholder="Name, e.g. Offering count sheets">
               <input data-lk="${i}" data-lf="url" value="${esc(l.url)}" placeholder="https://…" inputmode="url">
               <button class="icon-btn" data-ed="lk-del" data-i="${i}" aria-label="Remove link">${ico('x')}</button>
             </div>`).join('')}
@@ -99,7 +106,7 @@ const Editor = (() => {
     </div>`;
   }
 
-  const secretHint = () => `<div class="secret-hint">${ico('alert')} This looks like a password or PIN. Don't store passwords here. Write who gives access instead.</div>`;
+  const secretHint = () => `<div class="secret-hint">${ico('alert')} This looks like a password, PIN or account number. Don't store these here. Write who gives access instead (e.g. "the treasurer has the login").</div>`;
 
   function listEd(key, placeholder, addLabel, kind = '') {
     const items = E.sop[key];
@@ -121,7 +128,7 @@ const Editor = (() => {
           <button class="icon-btn danger" data-ed="st-del" aria-label="Delete step" title="Delete step">${ico('trash')}</button>
         </div>
       </div>
-      <textarea data-sf="text" rows="2" placeholder="${i === 0 ? 'What to do first, e.g. Open the Attendance sheet in Google Drive' : 'What to do next'}">${esc(st.text)}</textarea>
+      <textarea data-sf="text" rows="2" placeholder="${i === 0 ? 'What to do first, e.g. Open the offering count sheet for this Sunday' : 'What to do next'}">${esc(st.text)}</textarea>
       ${st.imageId ? `
         <div class="shot-wrap">
           <img data-img="${st.imageId}" alt="Screenshot for step ${i + 1}">
@@ -140,7 +147,7 @@ const Editor = (() => {
         </label>`}
       <div class="grid2">
         <input data-sf="link" value="${esc(st.link)}" placeholder="Link (optional)" inputmode="url">
-        <input data-sf="linkLabel" value="${esc(st.linkLabel)}" placeholder="Button text, e.g. Open the sheet">
+        <input data-sf="linkLabel" value="${esc(st.linkLabel)}" placeholder="Button text, e.g. Open the count sheet">
       </div>
       <details ${st.note || st.video ? 'open' : ''}>
         <summary>Warning, tip or video</summary>
@@ -169,14 +176,14 @@ const Editor = (() => {
       ${s.status !== 'Published' ? `<button class="btn primary block" data-ed="status" data-v="Published">${ico('check')} Publish</button>` : ''}
       <a class="btn ghost block" href="#/sop/${s.id}">Preview as a reader</a>
     </div>
-    <div class="card tip">${ico('key')}<p><b>No passwords.</b> Never write passwords or PINs in an SOP. Write who grants access instead.</p></div>`;
+    <div class="card tip">${ico('key')}<p><b>No passwords or account numbers.</b> Never write passwords, PINs, OTPs or full bank and card numbers in a guide. Write who grants access instead.</p></div>`;
   }
 
   /* ---------- Mount & events ---------- */
   function mount() {
     const root = $('.editor');
     E.root = root;
-    document.title = `Editing ${E.sop.name || 'task'} · SOP Library`;
+    document.title = `Editing ${E.sop.name || 'task'} · ${APP_NAME}`;
     afterDraw();
     root.addEventListener('input', onInput);
     root.addEventListener('click', onClick);
@@ -223,6 +230,18 @@ const Editor = (() => {
 
   function onInput(e) {
     const t = e.target, s = E.sop;
+    if (t.dataset.acct != null) {
+      const a = t.dataset.acct;
+      if (a === '*') s.accounts = t.checked ? ['*'] : [];
+      else {
+        s.accounts = s.accounts.filter((x) => x !== '*' && x !== a);
+        if (t.checked) s.accounts.push(a);
+        s.accounts.sort((x, y) => S.meta.accounts.indexOf(x) - S.meta.accounts.indexOf(y));
+      }
+      $$('[data-acct]', E.root).forEach((x) => { x.checked = s.accounts.includes(x.dataset.acct); });
+      changed();
+      return;
+    }
     if (t.dataset.f) s[t.dataset.f] = t.value;
     else if (t.dataset.sf) stepOf(t)[t.dataset.sf] = t.value;
     else if (t.dataset.li != null) s[t.closest('[data-list]').dataset.list][+t.dataset.li] = t.value;
@@ -330,14 +349,31 @@ const Editor = (() => {
     if (!E || !E.dirty) return;
     clearTimeout(E.timer);
     E.dirty = false;
-    if (!E.snapshotted) {
-      const prev = sopById(E.sop.id);
-      if (prev) await pushVersion(prev);
-      E.snapshotted = true;
+    const mine = E;
+    try {
+      if (!mine.snapshotted) {
+        const prev = sopById(mine.sop.id);
+        if (prev) await pushVersion(prev);
+        mine.snapshotted = true;
+      }
+      await saveSop(mine.sop);
+      if (E === mine) setSaveState('Saved');
+      window.removeEventListener('beforeunload', warnUnsaved);
+    } catch (err) {
+      // Keep the changes and try again; warn before closing the tab.
+      mine.dirty = true;
+      window.addEventListener('beforeunload', warnUnsaved);
+      if (!mine.failed) toast(/fetch|network/i.test(err.message) ? "Couldn't save: no connection. Your changes are kept and will be saved when you're back online." : `Couldn't save: ${err.message}`, 'err');
+      mine.failed = true;
+      if (E === mine) {
+        setSaveState('Not saved yet, retrying…', true);
+        mine.timer = setTimeout(flush, 5000);
+      }
+      return;
     }
-    await saveSop(E.sop);
-    setSaveState('Saved');
+    mine.failed = false;
   }
+  function warnUnsaved(e) { e.preventDefault(); e.returnValue = ''; }
 
   async function setStatus(v) {
     const s = E.sop;
@@ -364,6 +400,7 @@ const Editor = (() => {
     s.status = v;
     E.dirty = true;
     await flush();
+    if (E.dirty) return; // save failed; the retry message is already showing
     if (v === 'Published') { toast('Published. Readers can see it now.'); go(`#/sop/${s.id}`); }
     else { toast(`Status: ${v}`); redraw(); }
   }

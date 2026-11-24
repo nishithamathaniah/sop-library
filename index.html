@@ -3,17 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#141614" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Your team's step-by-step task guides (SOPs), so anyone can pick up any task.">
-  <title>SOP Library</title>
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#151617" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="The Father's House finance team's step-by-step task guides, so anyone can pick up any task.">
+  <meta name="robots" content="noindex">
+  <meta name="apple-mobile-web-app-title" content="Finance Handbook">
+  <title>Finance Handbook</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <div id="app"><div class="boot"><span class="spin"></span></div></div>
-  <noscript>SOP Library needs JavaScript turned on.</noscript>
+  <noscript>Finance Handbook needs JavaScript turned on.</noscript>
+  <script src="config.js"></script>
+  <script>if (window.SOP_CONFIG && SOP_CONFIG.supabaseUrl) document.write('<script src="vendor/supabase-2.119.2.js"><\/script>');</script>
+  <script src="js/logo.js"></script>
   <script src="js/db.js"></script>
   <script src="js/app.js"></script>
   <script src="js/editor.js"></script>
