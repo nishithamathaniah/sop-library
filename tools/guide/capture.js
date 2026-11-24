@@ -78,7 +78,7 @@ const demo = async (p, email) => { await p.goto(APP); await p.waitForSelector('.
   // 2. All tasks
   await p.goto(APP + '#/'); await p.waitForSelector('#list a.tr');
   await shot(p, 'all-tasks', [
-    '.side .nav-link:nth-child(1)', '.side .nav-link:nth-child(2)', ['.side .btn.primary', 'left'],
+    '.side .nav-link:nth-child(1)', '.side .nav-link:nth-child(3)', ['.side .btn.primary', 'left'],
     '.coverage .cov', '.search input', 'select[data-filter="account"]', '#list a.tr', '.side .me',
   ]);
 
@@ -101,6 +101,16 @@ const demo = async (p, email) => { await p.goto(APP); await p.waitForSelector('.
   // 5. My tasks
   await p.goto(APP + '#/mine'); await p.waitForSelector('.progress-card');
   await shot(p, 'my-tasks', ['.progress-card .ring', '[data-action="bulk-add"]', '.section-title', '.task-card .why', ['.task-card .tc-right', 'left']]);
+
+  // Checklist
+  await p.goto(APP + '#/due'); await p.waitForSelector('.due-summary');
+  await shot(p, 'checklist', [['.side .nav-link:nth-child(2)', 'left'], '.due-summary .ds.overdue', 'select[data-due="account"]', '#due-overdue .due-check', '#due-overdue .due-main', ['#due-overdue .due-when', 'left'], '#due-done .due-check']);
+  await p.goto(APP + '#/sop/sop_s6'); await p.waitForSelector('.track-bar');
+  await shot(p, 'track-bar', ['.track-bar .tb-text', ['.track-bar [data-action="run-history"]', 'left'], ['.track-bar [data-action="mark-done"]', 'left']], { el: '.track-bar', pad: 14 });
+  await p.click('.track-bar [data-action="mark-done"]'); await p.waitForSelector('#md');
+  await p.fill('#md textarea', 'Topped up ₹5,000. Receipt in the petty cash folder.');
+  await shot(p, 'mark-done', ['#md .picks', '#md textarea', ['#md button.primary', 'left']], { el: 'dialog[open]', pad: 0 });
+  await p.keyboard.press('Escape');
 
   // 6. New task + Add several
   await p.click('.side [data-action="new-task"]'); await p.waitForSelector('#nt');
@@ -201,7 +211,7 @@ const demo = async (p, email) => { await p.goto(APP); await p.waitForSelector('.
   await p.goto(APP + '#/admin?tab=lists'); await p.waitForSelector('.list-block');
   await shot(p, 'lists', ['.list-block:nth-of-type(1) .chips', '.list-block:nth-of-type(1) .item-form input', '.list-block:nth-of-type(2) .chips']);
   await p.goto(APP + '#/admin?tab=data'); await p.waitForSelector('.card-action');
-  await shot(p, 'backup', ['.card-action:nth-child(1)', '.card-action:nth-child(2)', '.card-action:nth-child(3)'], { el: '.admin-body', pad: 10 });
+  await shot(p, 'backup', ['.card-action:nth-child(1)', '.card-action:nth-child(2)', '.card-action:nth-child(3)', '.card-action:nth-child(4)'], { el: '.admin-body', pad: 10 });
 
   // 15. Phone
   const ph = await newPage(b, { viewport: { width: 390, height: 780 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });

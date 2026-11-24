@@ -99,6 +99,34 @@ section('My tasks', 'Your own list: what to write next and what needs fixing.', 
   ]),
 ]);
 
+section('Checklist: what\'s due', 'Every task, sorted by what needs doing. Tick a task when you\'ve done it, so everyone knows it\'s done.', [
+  shot('checklist', [
+    ['Checklist', 'In the menu. The red number is how many tasks are overdue.'],
+    ['Summary', 'How many tasks are overdue, due soon, coming up and done this period. Tap one to jump to that list.'],
+    ['Filters', 'Only one account (e.g. LifeHub), only your tasks, or one person\'s.'],
+    ['Tick', 'Tap the circle to mark the task as done.'],
+    ['The task', 'Tap the name to open its guide. Below it: the account and the period (this week, November, Oct–Dec…).'],
+    ['When', 'When it was due, or how many days are left.'],
+    ['Done', 'A green tick: done this period. Tap it to see who did it, or to undo.'],
+  ]),
+  steps('How periods work', [
+    '**Daily, Weekly, Monthly**: due by the end of the day, week (Monday to Sunday) or month.',
+    '**Quarterly and Yearly** follow the financial year: Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar, and April to March.',
+    'If the last period wasn\'t ticked, the task shows as **Overdue**. You can still tick it for that period.',
+    '**As needed** tasks have no due date. Tick them whenever you do them, so there\'s a record.',
+  ]),
+  shot('mark-done', [
+    ['Which period', 'Only shown if the last period was missed: choose which one you did.'],
+    ['Note', 'Optional: what you did, e.g. the amount or where the receipt is. Never passwords or account numbers.'],
+    ['Mark as done', 'Saves who did it and when.'],
+  ]),
+  shot('track-bar', [
+    ['This period', 'At the top of every guide: whether the task is done for this period.'],
+    ['History', 'Every time it was done, by whom, with notes. Undo is here too.'],
+    ['Mark as done', 'Same as ticking it in the Checklist. Finishing **Follow along** also offers to record it.'],
+  ]),
+]);
+
 section('Adding your tasks', 'Start by listing your recurring tasks. You can write each guide later.', [
   shot('add-several', [
     ['For', 'Admin only: whose tasks these are.'],
@@ -250,6 +278,7 @@ section('For the Admin: accounts, categories and backups', 'Admin → Accounts &
   ]),
   shot('backup', [
     ['Handover pack', 'Print many guides at once (see "Printing").'],
+    ['Task log', 'A spreadsheet of every time a task was marked as done: who, when, which period and any note. Useful for the auditor.'],
     ['Download a full backup', 'One file with every guide and screenshot. **Do this once a month** and keep it in the church\'s shared drive.'],
     ['Restore or import', 'Brings guides back from a backup file. In the shared handbook this button is called **Import guides**: it adds guides and never deletes anything.'],
   ]),
@@ -366,9 +395,9 @@ h2.page { font-size: 22pt; margin: 0 0 2mm; letter-spacing: -.01em; }
 .phones figcaption { margin-top: 2mm; font-weight: 600; font-size: 9.5pt; }
 
 /* Quick reference */
-table.qr { width: 100%; border-collapse: collapse; margin-bottom: 5mm; font-size: 9.5pt; }
+table.qr { width: 100%; border-collapse: collapse; margin-bottom: 4mm; font-size: 9.2pt; }
 .qr th { text-align: left; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 2px solid var(--ink); padding: 2mm; }
-.qr td { border-bottom: 1px solid var(--line); padding: 1.5mm 2mm; vertical-align: top; }
+.qr td { border-bottom: 1px solid var(--line); padding: 1.05mm 2mm; vertical-align: top; }
 .qr td:first-child { font-weight: 600; width: 45%; }
 .habits { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
 .habits div { border-radius: 3mm; padding: 4.5mm 5mm; }
@@ -426,6 +455,9 @@ ${S.map((s, i) => `<section class="section">
     <tr><td>Open the handbook</td><td><b>tfh-finance-handbook.vercel.app</b> (bookmark it, or add it to your phone's home screen)</td></tr>
     <tr><td>Do a task I haven't done before</td><td>All tasks → open the task → <span class="ui">Follow along</span></td></tr>
     <tr><td>See only one account's tasks</td><td>All tasks → <span class="ui">All accounts</span> filter → pick the account</td></tr>
+    <tr><td>See what's due or overdue</td><td><span class="ui">Checklist</span> in the menu</td></tr>
+    <tr><td>Record that I did a task</td><td>Checklist → tap the circle, or the guide → <span class="ui">Mark as done</span></td></tr>
+    <tr><td>Get a log for the auditor</td><td>Checklist → <span class="ui">Download log</span></td></tr>
     <tr><td>Find a task quickly</td><td>Search box on All tasks (or press <span class="ui">/</span>)</td></tr>
     <tr><td>Add my list of tasks</td><td>My tasks → <span class="ui">Add several</span></td></tr>
     <tr><td>Write a guide</td><td>My tasks → tap the task, or <span class="ui">New task</span></td></tr>
