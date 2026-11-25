@@ -77,10 +77,14 @@ const CloudDB = (() => {
   const KEY = { invites: 'email' };
   const BUCKET = 'screenshots';
   // App fields ending in Id/Date/By/At are nullable columns: '' <-> null
-  const NULLABLE = /(Id|Date|By|At)$/;
+  const NULLABLE = /(Id|Date|By|At|On)$/;
+  // Columns added by update 3 (migrations/003_full_template.sql). Until it has
+  // been run, they are left out of saves so nothing breaks.
+  const NEW_COLS = new Set(['sop_number', 'department', 'scope', 'roles', 'controls', 'exceptions', 'records', 'example', 'prepared_by', 'prepared_on', 'reviewed_by', 'approved_by', 'version', 'changed_on', 'change_note', 'account_details']);
+  let legacy = false;
   const snake = (k) => k.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase());
   const camel = (k) => k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-  const toRow = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'salt' && k !== 'hash').map(([k, v]) => [snake(k), v === '' && NULLABLE.test(k) ? null : v]));
+  const toRow = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'salt' && k !== 'hash' && !(legacy && NEW_COLS.has(snake(k)))).map(([k, v]) => [snake(k), v === '' && NULLABLE.test(k) ? null : v]));
   const fromRow = (r) => Object.fromEntries(Object.entries(r).map(([k, v]) => { const c = camel(k); return [c, v === null && NULLABLE.test(c) ? '' : v]; }));
   const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
@@ -131,6 +135,12 @@ const CloudDB = (() => {
     async del(store, id) { ok(await sb.from(TABLE[store]).delete().eq(KEY[store] || 'id', id)); },
     async clear() { throw new Error('Not available in the shared library'); },
     STORES: ['users', 'sops', 'versions', 'images', 'comments', 'meta', 'runs'],
+    // true when update 3 is in place; otherwise new fields are kept out of saves
+    async checkSchema() {
+      const { error } = await sb.from('sops').select('version').limit(1);
+      legacy = !!error;
+      return !legacy;
+    },
   };
 })();
 

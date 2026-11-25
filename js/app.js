@@ -155,8 +155,8 @@ function checkSop(s) {
   return { missing: miss, done: TOTAL - miss.length, total: TOTAL };
 }
 
-// Passwords, PINs and OTPs, plus bank account, card and UPI numbers written next to their label
-const SECRET_RE = /\b(pass(word|wd|code)?|pwd|pin|otp)\b\s*(is|[:=-])\s*\S+|\b(a\/c|account|acct|card|upi)\s*(no\.?|number|num|#|id)?\s*(is|[:=-])?\s*[\w.@-]*\d{6,}/i;
+// Passwords, PINs, OTPs and card numbers (account numbers are allowed by the team)
+const SECRET_RE = /\b(pass(word|wd|code)?|pwd|pin|otp)\b\s*(is|[:=-])\s*\S+|\bcard\s*(no\.?|number|num|#)?\s*(is|[:=-])?\s*\d[\d -]{11,}\d/i;
 
 function statusPill(s, opts = {}) {
   const map = { Draft: 'draft', Published: 'pub', 'Needs update': 'upd' };
@@ -202,7 +202,7 @@ async function saveSop(s) {
 async function pushVersion(prev) {
   await DB.put('versions', { id: uid('v_'), sopId: prev.id, at: prev.updatedAt, by: prev.updatedBy, data: clone(prev) });
   const all = (await DB.where('versions', 'sopId', prev.id)).sort((a, b) => b.at.localeCompare(a.at));
-  for (const old of all.slice(30)) await DB.del('versions', old.id);
+  for (const old of all.filter((v) => !v.data._release).slice(30)) await DB.del('versions', old.id);
 }
 async function saveUser(u) {
   await DB.put('users', u);
@@ -211,12 +211,28 @@ async function saveUser(u) {
 }
 async function saveMeta() { await DB.put('meta', S.meta); }
 
+/* Fields of the full template (paper SOP), with their empty values. */
+const EXTRA_FIELDS = {
+  sopNumber: '', department: '', scope: '', roles: [], controls: [], exceptions: [], records: '',
+  example: {}, preparedBy: '', preparedOn: '', reviewedBy: '', approvedBy: '', version: '1.0', changedOn: '', changeNote: '',
+};
+function normalizeSop(s) {
+  for (const [k, v] of Object.entries(EXTRA_FIELDS)) {
+    if (s[k] === undefined || s[k] === null) s[k] = Array.isArray(v) ? [] : (typeof v === 'object' ? {} : v);
+  }
+  s.accounts = s.accounts || [];
+  if (!s.version) s.version = '1.0';
+  return s;
+}
+const signLine = (s) => s.approvedBy ? `Approved · ${s.approvedBy}` : s.reviewedBy ? `Reviewed · ${s.reviewedBy}` : s.preparedBy ? `Prepared · ${s.preparedBy}` : 'Not signed off';
+
 function newSop(fields) {
   return {
     id: uid('sop_'), name: '', ownerId: S.me.id, backupId: '', category: S.meta.categories[0] || 'Other', frequency: 'Weekly',
     purpose: '', whenToDo: '', tools: [''], steps: [newStep()], links: [], mistakes: [], doneChecklist: [''],
     output: '', status: 'Draft', reviewDate: '', createdAt: now(), updatedAt: now(), updatedBy: S.me.id,
     accounts: S.meta.accounts.length === 1 ? [S.meta.accounts[0]] : [],
+    ...clone(EXTRA_FIELDS), preparedBy: S.me.name, preparedOn: now().slice(0, 10),
     ...fields,
   };
 }
@@ -318,6 +334,7 @@ async function render() {
     const s = sopById(parts[1]);
     if (!s || !canView(s)) html = notFound();
     else if (parts[2] === 'edit' && canEdit(s)) { html = Editor.view(s); after = () => Editor.mount(s); active = s.ownerId === S.me.id ? 'mine' : 'library'; }
+    else if (parts[2] === 'v' && parts[3]) { html = '<p class="muted">Loading…</p>'; after = () => showOldVersion(s, parts[3]); }
     else { html = viewSop(s); after = () => mountSop(s); }
   } else if (parts[0] === 'due') { html = dueView(); active = 'due'; after = mountDue; }
   else if (parts[0] === 'mine' && canCreate()) { html = mineView(); active = 'mine'; }
@@ -579,7 +596,7 @@ function renderList() {
   box.innerHTML = `
   <p class="result-count">${list.length} task${list.length === 1 ? '' : 's'}</p>
   <div class="table">
-    <div class="tr th"><span>Task</span><span>Owner</span><span>Frequency</span><span>Status</span><span>Updated</span></div>
+    <div class="tr th"><span>Task</span><span>Owner</span><span>Frequency</span><span>Status</span><span>Version</span></div>
     ${list.map((s) => {
       const chk = s.status !== 'Published' ? checkSop(s) : null;
       return `<a class="tr" href="#/sop/${s.id}">
@@ -587,7 +604,7 @@ function renderList() {
         <span class="t-owner">${avatar(s.ownerId, 'sm')}<span>${esc(uname(s.ownerId))}</span></span>
         <span class="t-freq">${esc(s.frequency)}</span>
         <span class="t-status">${statusPill(s, { flags: true })}${chk && s.status === 'Draft' ? `<span class="mini-bar" title="${chk.done} of ${chk.total} required parts filled"><i style="width:${(chk.done / chk.total) * 100}%"></i></span>` : ''}</span>
-        <span class="t-upd">${ago(s.updatedAt)}</span>
+        <span class="t-upd t-ver"><b>v${esc(s.version || '1.0')}</b><small class="${s.approvedBy ? 'ok' : ''}">${esc(signLine(s))}</small></span>
       </a>`;
     }).join('')}
   </div>`;
@@ -641,8 +658,9 @@ function mineView() {
 }
 
 /* ---------- SOP read view ---------- */
-function viewSop(s) {
-  const edit = canEdit(s);
+function viewSop(s, { old = null } = {}) {
+  normalizeSop(s);
+  const edit = !old && canEdit(s);
   const flags = openFlags(s.id);
   const stepFlags = (stId) => flags.filter((c) => c.stepId === stId);
   const steps = s.steps.filter((st) => st.text.trim() || st.imageId);
@@ -651,15 +669,17 @@ function viewSop(s) {
   return `
   <article class="sop">
     <div class="crumbs no-print"><a href="#/">${ico('left')} All tasks</a></div>
-    ${s.status === 'Needs update' ? `<div class="banner warn">${ico('alert')}<div><b>This guide may be out of date.</b> Follow it with care and check with ${esc(uname(s.ownerId))}${s.backupId ? ` or ${esc(uname(s.backupId))}` : ''} if something doesn't match.</div></div>` : ''}
-    ${s.status === 'Draft' ? `<div class="banner">${ico('edit')}<div><b>Draft.</b> Not yet published, so readers can't see it.${edit ? ' Read it once as if you were new, then publish.' : ''}</div></div>` : ''}
+    ${old ? `<div class="banner old">${ico('history')}<div><b>Old version ${esc(s.version)}</b>, kept for reference${s.changedOn || s.preparedOn ? ` (${fmtDate(s.changedOn || s.preparedOn)})` : ''}. <a href="#/sop/${s.id}">Go to the current version</a></div></div>` : ''}
+    ${!old && s.status === 'Needs update' ? `<div class="banner warn">${ico('alert')}<div><b>This guide may be out of date.</b> Follow it with care and check with ${esc(uname(s.ownerId))}${s.backupId ? ` or ${esc(uname(s.backupId))}` : ''} if something doesn't match.</div></div>` : ''}
+    ${!old && s.status === 'Draft' ? `<div class="banner">${ico('edit')}<div><b>Draft.</b> Not yet published, so readers can't see it.${edit ? ' Read it once as if you were new, then publish.' : ''}</div></div>` : ''}
     <header class="sop-head">
       <div class="sop-title">
-        <div class="pills">${statusPill(s)}${acctPills(s)}<span class="pill soft">${esc(s.category)}</span></div>
+        ${s.sopNumber || s.department ? `<div class="doc-id">${[s.sopNumber, s.department].filter(Boolean).map(esc).join(' · ')} · Version ${esc(s.version)}</div>` : ''}
+        <div class="pills">${old ? '' : statusPill(s)}${acctPills(s)}<span class="pill soft">${esc(s.category)}</span></div>
         <h1>${esc(s.name || 'Untitled task')}</h1>
         ${s.purpose ? `<p class="lead">${fmtText(s.purpose)}</p>` : ''}
       </div>
-      <div class="sop-actions no-print">
+      <div class="sop-actions no-print" ${old ? 'hidden' : ''}>
         ${steps.length ? `<a class="btn primary" href="#/sop/${s.id}/follow">${ico('play')} Follow along</a>` : ''}
         ${edit ? `<a class="btn" href="#/sop/${s.id}/edit">${ico('edit')} Edit</a>` : ''}
         <button class="btn" data-action="print">${ico('print')} PDF</button>
@@ -668,12 +688,21 @@ function viewSop(s) {
     </header>
 
     <dl class="facts">
-      <div><dt>When</dt><dd>${esc(s.whenToDo || '—')}</dd></div>
+      <div class="${(s.whenToDo || '').length > 70 ? 'wide' : ''}"><dt>When</dt><dd>${esc(s.whenToDo || '—')}</dd></div>
       <div><dt>How often</dt><dd>${esc(s.frequency)}</dd></div>
       <div><dt>Owner</dt><dd>${avatar(s.ownerId, 'xs')} ${esc(uname(s.ownerId))}</dd></div>
       <div><dt>Backup</dt><dd>${s.backupId ? `${avatar(s.backupId, 'xs')} ${esc(uname(s.backupId))}` : '—'}</dd></div>
     </dl>
-    ${trackBar(s)}
+    ${acctDetails(s)}
+    ${old ? '' : trackBar(s)}
+
+    ${s.scope ? `<section class="block"><h2>${ico('square')} Scope</h2><p>${fmtText(s.scope)}</p></section>` : ''}
+
+    ${s.roles.some((r) => (r.role || r.person || r.duties || '').trim()) ? `
+    <section class="block"><h2>${ico('users')} Roles and responsibilities</h2>
+      <div class="roles-v">${s.roles.filter((r) => (r.role || r.person || r.duties || '').trim()).map((r) => `
+        <div class="role-v"><div class="rv-head"><b>${esc(r.role || 'Role')}</b>${r.person ? `<span>${esc(r.person)}</span>` : ''}</div>${r.duties ? `<p>${fmtText(r.duties)}</p>` : ''}</div>`).join('')}</div>
+    </section>` : ''}
 
     ${s.tools.some((t) => t.trim()) ? `
     <section class="block"><h2>${ico('key')} Tools and access you need</h2>
@@ -699,11 +728,26 @@ function viewSop(s) {
               <span class="print-only url">${esc(safeUrl(st.link))}</span>
             </div>` : ''}
             ${fl.length ? `<div class="flags">${fl.map((c) => flagHtml(c, s)).join('')}</div>` : ''}
-            <button class="unclear no-print" data-action="flag" data-sop="${s.id}" data-step="${st.id}">${ico('flag')} Something unclear?</button>
+            <button class="unclear no-print" data-action="flag" data-sop="${s.id}" data-step="${st.id}" ${old ? 'hidden' : ''}>${ico('flag')} Something unclear?</button>
           </div>
         </li>`;
       }).join('')}</ol>` : `<p class="muted">No steps yet.</p>`}
     </section>
+
+    ${(s.example.scenario || s.example.expected || s.example.imageId) ? `
+    <section class="block"><h2>${ico('book')} Worked example</h2>
+      ${s.example.scenario ? `<div class="example-box">${fmtText(s.example.scenario)}</div>` : ''}
+      ${s.example.imageId ? `<figure class="shot"><img data-img="${s.example.imageId}" alt="Example" data-action="zoom"></figure>` : ''}
+      ${s.example.expected ? `<p class="expected"><b>Expected result:</b> ${fmtText(s.example.expected)}</p>` : ''}
+    </section>` : ''}
+
+    ${s.controls.some((t) => t.trim()) ? `
+    <section class="block"><h2>${ico('check')} Controls and verification</h2>
+      <ul class="checks">${s.controls.filter((t) => t.trim()).map((t) => `<li><span class="box"></span>${fmtText(t)}</li>`).join('')}</ul></section>` : ''}
+
+    ${s.exceptions.some((t) => t.trim()) ? `
+    <section class="block"><h2>${ico('flag')} Exceptions and escalation</h2>
+      <ul class="bullets warn">${s.exceptions.filter((t) => t.trim()).map((t) => `<li>${fmtText(t)}</li>`).join('')}</ul></section>` : ''}
 
     ${s.mistakes.some((t) => t.trim()) ? `
     <section class="block"><h2>${ico('alert')} Common mistakes</h2>
@@ -715,13 +759,91 @@ function viewSop(s) {
 
     ${s.output ? `<section class="block"><h2>${ico('download')} Output</h2><p>${fmtText(s.output)}</p></section>` : ''}
 
-    ${flags.filter((c) => !c.stepId).length ? `<section class="block no-print"><h2>${ico('msg')} Questions about this guide</h2><div class="flags">${flags.filter((c) => !c.stepId).map((c) => flagHtml(c, s)).join('')}</div></section>` : ''}
+    ${s.records ? `<section class="block"><h2>${ico('book')} Records, filing and retention</h2><p>${fmtText(s.records)}</p></section>` : ''}
 
-    <footer class="sop-foot">
+    <section class="block signoff">
+      <h2>${ico('pen')} Sign-off</h2>
+      <table class="signoff-t">
+        <tr><th>Prepared by</th><td>${esc(s.preparedBy || '—')}</td><th>Date of preparation</th><td>${s.preparedOn ? fmtDate(s.preparedOn) : '—'}</td></tr>
+        <tr><th>Reviewed by</th><td>${esc(s.reviewedBy || '—')}</td><th>Version</th><td>${esc(s.version)}</td></tr>
+        <tr><th>Approved by</th><td>${esc(s.approvedBy || '—')}</td><th>Date of change</th><td>${s.changedOn ? fmtDate(s.changedOn) : '—'}</td></tr>
+      </table>
+      <div class="sign-lines print-only"><span>Prepared by</span><span>Reviewed by</span><span>Approved by</span></div>
+    </section>
+
+    ${old ? '' : `<section class="block versions-block"><h2>${ico('history')} Version index</h2><div id="versions-index"><p class="muted small">Loading…</p></div></section>`}
+
+    ${!old && flags.filter((c) => !c.stepId).length ? `<section class="block no-print"><h2>${ico('msg')} Questions about this guide</h2><div class="flags">${flags.filter((c) => !c.stepId).map((c) => flagHtml(c, s)).join('')}</div></section>` : ''}
+
+    <footer class="sop-foot" ${old ? 'hidden' : ''}>
       Last updated ${fmtDate(s.updatedAt)} by ${esc(uname(s.updatedBy))} · Review by ${fmtDate(due)}
       <button class="linkish no-print" data-action="flag" data-sop="${s.id}" data-step="">${ico('flag')} Ask a question about this guide</button>
     </footer>
   </article>`;
+}
+
+function acctDetails(s) {
+  const names = s.accounts.includes('*') ? S.meta.accounts : s.accounts;
+  const rows = names.filter((a) => (S.meta.accountDetails || {})[a]);
+  if (!rows.length) return '';
+  return `<div class="acct-details">${rows.map((a) => `<div><b>${esc(a)}</b><span>${fmtText(S.meta.accountDetails[a])}</span></div>`).join('')}</div>`;
+}
+
+/* Version index: the current version plus every saved version, newest first. */
+async function mountSop(s) {
+  document.title = `${s.name} · ${APP_NAME}`;
+  const box = $('#versions-index');
+  if (!box) return;
+  let rel = [];
+  try { rel = (await DB.where('versions', 'sopId', s.id)).filter((v) => v.data && v.data._release); } catch { /* none */ }
+  rel.sort((a, b) => b.at.localeCompare(a.at));
+  const row = (d, link, current) => `<tr>
+    <td><b>${esc(d.version || '1.0')}</b>${current ? ' <span class="pill pub">Current</span>' : ''}</td>
+    <td>${d.changedOn || d.preparedOn ? fmtDate(d.changedOn || d.preparedOn) : '—'}</td>
+    <td>${esc(d.changeNote || (d.version === '1.0' || !d.version ? 'First version' : '—'))}</td>
+    <td>${esc(d.approvedBy || '—')}</td>
+    <td class="no-print">${link ? `<a href="${link}">View</a>` : ''}</td></tr>`;
+  box.innerHTML = `<table class="versions-t"><tr><th>Version</th><th>Date</th><th>Changes</th><th>Approved by</th><th class="no-print"></th></tr>
+    ${row(s, '', true)}${rel.map((v) => row(v.data, `#/sop/${s.id}/v/${v.id}`, false)).join('')}</table>
+    ${canEdit(s) ? `<button class="btn sm no-print" data-action="new-version" data-id="${s.id}">${ico('plus')} Start a new version</button>` : ''}`;
+}
+
+/* An old, saved version: read-only. */
+async function showOldVersion(s, vid) {
+  const v = await DB.get('versions', vid).catch(() => null);
+  const main = $('.main');
+  if (!v || !v.data || v.sopId !== s.id) { main.innerHTML = notFound(); return; }
+  main.innerHTML = viewSop(normalizeSop({ ...clone(v.data), id: s.id }), { old: true });
+  hydrateImages(main);
+}
+
+/* Save the current guide as a version and continue as a new one. */
+function newVersionModal(s) {
+  const [maj, min] = String(s.version || '1.0').split('.').map((x) => parseInt(x, 10) || 0);
+  const big = `${maj + 1}.0`, small = `${maj}.${min + 1}`;
+  const d = modal(`
+  <form class="modal-body" id="nv">
+    <h2>Start a new version</h2>
+    <p class="muted">Version ${esc(s.version)} is kept exactly as it is, and anyone can still open it from the version index. You then edit the new version.</p>
+    <div class="field"><span>What kind of change?</span><div class="picks">
+      <label class="pick"><input type="radio" name="kind" value="${big}" checked><span>New version ${big}</span></label>
+      <label class="pick"><input type="radio" name="kind" value="${small}"><span>Small correction ${small}</span></label>
+    </div><small class="hint">New version: e.g. new software, new bank portal, a changed process. Small correction: a typo or a clearer step.</small></div>
+    <label class="field"><span>What changed?</span><textarea name="note" rows="2" required placeholder="e.g. Updated for the new ICICI corporate banking screens"></textarea></label>
+    <p class="muted small">The new version needs to be reviewed and approved again.</p>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Start version</button></div>
+  </form>`);
+  $('#nv', d).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const cur = sopById(s.id);
+    await DB.put('versions', { id: uid('v_'), sopId: s.id, at: now(), by: S.me.id, data: { ...clone(cur), _release: true } });
+    const x = clone(cur);
+    Object.assign(x, { version: f.get('kind'), changedOn: now().slice(0, 10), changeNote: f.get('note').trim(), reviewedBy: '', approvedBy: '', preparedBy: cur.preparedBy || S.me.name });
+    await saveSop(x);
+    d.close(); toast(`Version ${x.version} started. Version ${cur.version} is kept.`);
+    go(`#/sop/${s.id}/edit`);
+  });
 }
 
 function flagHtml(c, s) {
@@ -730,7 +852,6 @@ function flagHtml(c, s) {
     ${canResolve ? `<button class="btn sm ghost" data-action="resolve-flag" data-id="${c.id}">${ico('check')} Resolve</button>` : ''}</div>`;
 }
 
-function mountSop(s) { document.title = `${s.name} · ${APP_NAME}`; }
 
 /* ---------- Follow-along mode ---------- */
 function renderFollow(s) {
@@ -896,7 +1017,19 @@ function adminView(q) {
       <div class="chips">${S.meta[key].map((c, i) => `<span class="chip">${esc(c)} <small title="Tasks using it">${count(c)}</small><button data-action="del-item" data-key="${key}" data-i="${i}" aria-label="Remove ${esc(c)}">${ico('x')}</button></span>`).join('') || '<span class="muted small">None yet.</span>'}</div>
       <form class="inline-form item-form" data-key="${key}"><input name="item" placeholder="${placeholder}" required><button class="btn">${ico('plus')} Add</button></form>
     </section>`;
-    body = listEditor('accounts', 'Accounts', 'The separate accounts the team looks after. Each task guide says which account(s) it is for, so someone covering can filter to just that account.', "e.g. Father's House", (c) => S.sops.filter((s) => s.accounts.includes(c)).length)
+    const accountsBlock = `
+    <section class="list-block">
+      <h2>Accounts</h2>
+      <p class="muted">The separate accounts the team looks after. Each task guide says which account(s) it is for. Bank details written here appear on every guide for that account.</p>
+      <div class="acct-rows">${S.meta.accounts.map((a, i) => `
+        <div class="acct-row">
+          <div class="ar-name"><b>${esc(a)}</b><small>${S.sops.filter((s) => s.accounts.includes(a)).length} tasks</small></div>
+          <textarea rows="1" data-acct-detail="${esc(a)}" placeholder="Bank, account number(s), branch, e.g. ICICI 270605000777, 270605000924 · Sithalapakkam">${esc((S.meta.accountDetails || {})[a] || '')}</textarea>
+          <button class="icon-btn danger" data-action="del-item" data-key="accounts" data-i="${i}" aria-label="Remove ${esc(a)}">${ico('trash')}</button>
+        </div>`).join('') || '<p class="muted small">None yet.</p>'}</div>
+      <form class="inline-form item-form" data-key="accounts"><input name="item" placeholder="New account, e.g. Father's House" required><button class="btn">${ico('plus')} Add</button></form>
+    </section>`;
+    body = accountsBlock
       + listEditor('categories', 'Categories', 'The kinds of work, used to group and filter tasks. Removing one doesn\'t change existing tasks.', 'e.g. Bank transfers', (c) => S.sops.filter((s) => s.category === c).length);
   } else {
     body = `
@@ -912,6 +1045,7 @@ function adminView(q) {
   }
   return `
   <header class="page-head"><div><h1>Admin</h1><p class="sub">People, accounts, categories and backups.</p></div></header>
+  ${S.schemaOld || S.runsMissing ? `<div class="banner warn">${ico('alert')}<div><b>A database update is waiting.</b> In Supabase, open SQL Editor → New query, paste ${[S.runsMissing && '<code>supabase/migrations/002_task_runs.sql</code>', S.schemaOld && '<code>supabase/migrations/003_full_template.sql</code>'].filter(Boolean).join(' and then ')} from the project on GitHub, and tap Run. Until then, ${S.schemaOld ? 'the new guide sections, sign-off, versions and account numbers are not saved' : 'the Checklist is off'}.</div></div>` : ''}
   <nav class="tabs">${tabs.map(([k, i, l]) => `<a href="#/admin?tab=${k}" class="${tab === k ? 'on' : ''}">${ico(i)} ${l}</a>`).join('')}</nav>
   <section class="admin-body">${body}</section>`;
 }
@@ -940,6 +1074,7 @@ const actions = {
     S.meta[key].splice(+el.dataset.i, 1); await saveMeta(); render();
   },
   'export': () => exportBackup(),
+  'new-version': (el) => newVersionModal(sopById(el.dataset.id)),
   'activate': async (el) => { const u = user(el.dataset.id); u.active = true; await saveUser(u); toast(`${u.name} can now sign in as ${ROLES[u.role]}`); render(); },
   'copy-invite': (el) => {
     const iv = S.invites.find((x) => x.email === el.dataset.email);
@@ -1005,6 +1140,7 @@ function duplicateOf(src) {
   return Object.assign(s, {
     id: uid('sop_'), name: src.name + ' (copy)', status: 'Draft', ownerId: S.me.role === 'reader' ? src.ownerId : (isAdmin() ? src.ownerId : S.me.id),
     reviewDate: '', createdAt: now(), steps: s.steps.map((st) => ({ ...st, id: uid('st_') })),
+    sopNumber: '', version: '1.0', preparedBy: S.me.name, preparedOn: now().slice(0, 10), reviewedBy: '', approvedBy: '', changedOn: '', changeNote: '',
   });
 }
 
@@ -1064,7 +1200,8 @@ function sopMoreMenu(s) {
   const items = [];
   if (canCreate()) items.push({ key: 'dup', icon: 'copy', label: 'Duplicate as a new task', run: async () => { const c = duplicateOf(s); await saveSop(c); toast('Copy created'); go(`#/sop/${c.id}/edit`); } });
   if (edit) {
-    items.push({ key: 'hist', icon: 'history', label: 'Version history', run: () => historyModal(s) });
+    items.push({ key: 'nv', icon: 'plus', label: 'Start a new version', run: () => newVersionModal(s) });
+    items.push({ key: 'hist', icon: 'history', label: 'Edit history (undo changes)', run: () => historyModal(s) });
     if (s.status === 'Published') items.push({ key: 'nu', icon: 'alert', label: 'Mark as needs update', run: async () => { await pushVersion(s); const x = clone(s); x.status = 'Needs update'; await saveSop(x); render(); } });
     if (s.status === 'Published' || s.status === 'Needs update') items.push({ key: 'rev', icon: 'check', label: 'Confirm still correct (reset review date)', run: async () => { await pushVersion(s); const x = clone(s); x.status = 'Published'; x.reviewDate = addMonths(new Date(), REVIEW_MONTHS).toISOString().slice(0, 10); await saveSop(x); toast('Review date moved forward 6 months'); render(); } });
   }
@@ -1246,6 +1383,9 @@ async function importIntoCloud(data) {
   for (const k of ['accounts', 'categories']) {
     for (const v of meta?.[k] || []) if (!S.meta[k].includes(v)) { S.meta[k].push(v); metaChanged = true; }
   }
+  for (const [k, v] of Object.entries(meta?.accountDetails || {})) {
+    if (v && !(S.meta.accountDetails || {})[k]) { S.meta.accountDetails = { ...(S.meta.accountDetails || {}), [k]: v }; metaChanged = true; }
+  }
   if (metaChanged) await saveMeta();
   let done = 0;
   toast('Importing… keep this page open');
@@ -1261,7 +1401,14 @@ async function importIntoCloud(data) {
       await DB.put('images', { id: newId, data: images.get(st.imageId) });
       st.imageId = newId;
     }
-    await DB.put('sops', x);
+    if (x.example && x.example.imageId) {
+      if (images.has(x.example.imageId)) {
+        const newId = uid('img_');
+        await DB.put('images', { id: newId, data: images.get(x.example.imageId) });
+        x.example = { ...x.example, imageId: newId };
+      } else x.example = { ...x.example, imageId: '' };
+    }
+    await DB.put('sops', normalizeSop(x));
     done++;
   }
   await loadAll();
@@ -1277,7 +1424,9 @@ async function loadAll() {
   S.meta = (await DB.get('meta', 'settings')) || { id: 'settings', categories: ['Cash', 'Bank transfers', 'Reimbursements', 'Invoices & bills', 'Tallying & reconciliation', 'Records & reports', 'Other'] };
   S.meta.categories = S.meta.categories || [];
   S.meta.accounts = S.meta.accounts || [];
-  S.sops.forEach((s) => { s.accounts = s.accounts || []; });
+  S.meta.accountDetails = S.meta.accountDetails || {};
+  S.sops.forEach(normalizeSop);
+  S.schemaOld = CLOUD ? !(await DB.checkSchema().catch(() => false)) : false;
   S.invites = CLOUD ? await DB.all('invites').catch(() => []) : [];
   S.runsMissing = false;
   S.runs = await DB.since('runs', 'doneAt', new Date(Date.now() - 400 * 86400000).toISOString()).catch(() => { S.runsMissing = true; return []; });
@@ -1312,7 +1461,14 @@ document.addEventListener('change', (e) => {
   const f = e.target.closest('select[data-filter]');
   if (f) { S.filters[f.dataset.filter] = f.value; renderList(); $$('.cov').forEach((c) => c.classList.toggle('on', c.dataset.id === S.filters.owner)); }
 });
+document.addEventListener('change', async (e) => {
+  const t = e.target.closest('[data-acct-detail]');
+  if (!t) return;
+  S.meta.accountDetails = { ...(S.meta.accountDetails || {}), [t.dataset.acctDetail]: t.value.trim() };
+  await saveMeta(); toast('Saved');
+});
 document.addEventListener('input', (e) => {
+  if (e.target.matches('textarea[data-acct-detail]')) { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 2 + 'px'; }
   if (e.target.matches('input[data-filter="q"]')) { S.filters.q = e.target.value; renderList(); }
 });
 document.addEventListener('submit', async (e) => {

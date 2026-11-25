@@ -105,7 +105,7 @@ async function markDoneModal(s) {
       : periods.length === 1 ? `<p class="period-line">${ico('clock')} For <b>${esc(periods[0][1])}</b></p>` : `<p class="period-line">${ico('clock')} Done today</p>`}
     <label class="field secret-scope"><span>Note <em>optional</em></span>
       <textarea name="note" rows="2" placeholder="e.g. Paid ₹4,250 on 3 Nov, receipt in the Bills folder"></textarea>
-      <div class="secret-hint">${ico('alert')} This looks like a password, PIN or account number. Don't store these here.</div>
+      <div class="secret-hint">${ico('alert')} This looks like a password, PIN, OTP or card number. Don't store these here.</div>
     </label>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${ico('check')} Mark as done</button></div>
   </form>`);

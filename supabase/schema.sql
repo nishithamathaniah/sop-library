@@ -226,3 +226,21 @@ drop policy if exists runs_update on public.task_runs;
 create policy runs_update on public.task_runs for update using (done_by = auth.uid() or public.my_role() = 'admin');
 drop policy if exists runs_delete on public.task_runs;
 create policy runs_delete on public.task_runs for delete using (done_by = auth.uid() or public.my_role() = 'admin');
+
+-- ---------- Full template, sign-off, versions, account details (also in migrations/003_full_template.sql) ----------
+alter table public.sops add column if not exists sop_number   text  not null default '';  -- e.g. FHF-SOP-001
+alter table public.sops add column if not exists department   text  not null default '';  -- e.g. Accounts
+alter table public.sops add column if not exists scope        text  not null default '';
+alter table public.sops add column if not exists roles        jsonb not null default '[]'; -- [{role, person, duties}]
+alter table public.sops add column if not exists controls     text[] not null default '{}';
+alter table public.sops add column if not exists exceptions   text[] not null default '{}';
+alter table public.sops add column if not exists records      text  not null default '';
+alter table public.sops add column if not exists example      jsonb not null default '{}'; -- {scenario, expected, imageId}
+alter table public.sops add column if not exists prepared_by  text;
+alter table public.sops add column if not exists prepared_on  date;
+alter table public.sops add column if not exists reviewed_by  text;
+alter table public.sops add column if not exists approved_by  text;
+alter table public.sops add column if not exists version      text  not null default '1.0';
+alter table public.sops add column if not exists changed_on   date;
+alter table public.sops add column if not exists change_note  text  not null default '';
+alter table public.settings add column if not exists account_details jsonb not null default '{}';

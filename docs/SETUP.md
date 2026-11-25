@@ -155,3 +155,6 @@ Run each of these once in Supabase → **SQL Editor → New query** → paste �
 | File | Adds |
 | --- | --- |
 | [`supabase/migrations/002_task_runs.sql`](../supabase/migrations/002_task_runs.sql) | The **Checklist**: "Mark as done", overdue tasks, history and the task log |
+| [`supabase/migrations/003_full_template.sql`](../supabase/migrations/003_full_template.sql) | The full SOP template (SOP number, department, scope, roles, worked example, controls, exceptions, records), **sign-off** (prepared/reviewed/approved by), **numbered versions**, and **account numbers** in Admin |
+
+Supabase may show "Potential issue detected" for these. They only add tables, columns and access rules; no data is deleted, so tap **Run query**.

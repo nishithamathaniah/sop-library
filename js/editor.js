@@ -6,7 +6,7 @@ const Editor = (() => {
 
   /* ---------- Rendering ---------- */
   function view(s) {
-    E = { sop: clone(s), dirty: false, timer: null, snapshotted: false, activeStep: null, root: null };
+    E = { sop: normalizeSop(clone(s)), dirty: false, timer: null, snapshotted: false, activeStep: null, root: null };
     return `<div class="editor">${inner()}</div>`;
   }
 
@@ -20,7 +20,7 @@ const Editor = (() => {
     <div class="ed-grid">
       <div class="ed-main">
         <div class="ed-titlebar">
-          <input class="title-input" id="f-name" data-f="name" value="${esc(s.name)}" placeholder="Task name, e.g. Count and deposit the Sunday offering" aria-label="Task name">
+          <textarea class="title-input" id="f-name" data-f="name" rows="1" placeholder="Task name, e.g. Count and deposit the Sunday offering" aria-label="Task name">${esc(s.name)}</textarea>
         </div>
 
         <section class="card">
@@ -32,6 +32,15 @@ const Editor = (() => {
             </div>
           </div>` : ''}
           <div class="grid3">
+            <label class="field"><span>SOP number <em>optional</em></span>
+              <input data-f="sopNumber" value="${esc(s.sopNumber)}" placeholder="e.g. FHF-SOP-001">
+            </label>
+            <label class="field"><span>Department <em>optional</em></span>
+              <input data-f="department" value="${esc(s.department)}" placeholder="e.g. Accounts">
+            </label>
+            <div class="field"><span>Version</span>
+              <div class="static">${esc(s.version)} <button class="linkish" data-ed="new-version">${ico('plus')} New version</button></div>
+            </div>
             <label class="field" id="f-owner"><span>Owner</span>
               ${isAdmin() ? `<select data-f="ownerId">${ownerOptions(s.ownerId)}</select>` : `<div class="static">${avatar(s.ownerId, 'xs')} ${esc(uname(s.ownerId))}</div>`}
             </label>
@@ -57,8 +66,12 @@ const Editor = (() => {
             <textarea data-f="purpose" rows="2" placeholder="One or two lines: why this task exists and who relies on it.">${esc(s.purpose)}</textarea>
             ${secretHint()}
           </label>
+          <label class="field secret-scope"><span>Scope <em>optional</em></span>
+            <textarea data-f="scope" rows="2" placeholder="Who and what this applies to, e.g. the two ICICI accounts of Father's House Foundation">${esc(s.scope)}</textarea>
+            ${secretHint()}
+          </label>
           <label class="field secret-scope" id="f-when"><span>When to do it <em>required</em></span>
-            <input data-f="whenToDo" value="${esc(s.whenToDo)}" placeholder='e.g. "Every Sunday after the last service" or "When a ministry leader submits a bill"'>
+            <textarea data-f="whenToDo" rows="1" placeholder='e.g. "Every Sunday after the last service" or "When a bank statement is downloaded"'>${esc(s.whenToDo)}</textarea>
             ${secretHint()}
           </label>
           <div class="field secret-scope" id="f-tools"><span>Tools and access needed <em>required</em></span>
@@ -67,10 +80,34 @@ const Editor = (() => {
           </div>
         </section>
 
+        <section class="card">
+          <h2 class="card-title">${ico('users')} Roles and responsibilities <small class="muted">Optional. Who prepares, who checks, who approves.</small></h2>
+          <div class="roles-ed">${s.roles.map((r, i) => `
+            <div class="role-row">
+              <textarea rows="1" data-role="${i}" data-rf="role" placeholder="Role, e.g. Process owner">${esc(r.role || '')}</textarea>
+              <textarea rows="1" data-role="${i}" data-rf="person" placeholder="Who, e.g. Mercy (Accounts executive)">${esc(r.person || '')}</textarea>
+              <textarea rows="1" data-role="${i}" data-rf="duties" placeholder="What they do">${esc(r.duties || '')}</textarea>
+              <button class="icon-btn" data-ed="role-del" data-i="${i}" aria-label="Remove role">${ico('x')}</button>
+            </div>`).join('')}</div>
+          <button class="add-line" data-ed="role-add">${ico('plus')} Add role</button>
+        </section>
+
         <section class="card" id="f-steps">
           <h2 class="card-title"><span class="n">2</span> Steps <small class="muted">Tip: paste a screenshot with Ctrl+V (⌘V on Mac) to add it to the selected step.</small></h2>
           <div class="steps-ed">${s.steps.map((st, i) => stepEd(st, i, s.steps.length)).join('')}</div>
           <button class="add-step" data-ed="st-add">${ico('plus')} Add step</button>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">${ico('book')} Worked example <small class="muted">Optional. A real case, e.g. one bank line and its bill.</small></h2>
+          <label class="field"><span>Scenario</span>
+            <textarea data-ex="scenario" rows="2" placeholder="e.g. A sample bank transaction: INF/NEFT/…/internet charge/…">${esc(s.example.scenario || '')}</textarea>
+          </label>
+          ${s.example.imageId ? `<div class="shot-wrap"><img data-img="${s.example.imageId}" alt="Example"><div class="shot-tools"><label class="btn sm">${ico('image')} Replace<input type="file" accept="image/*" data-ex-file hidden></label><button class="btn sm danger-text" data-ed="ex-img-del">${ico('trash')} Remove</button></div></div>`
+            : `<label class="drop">${ico('image')}<span><b>Add a picture</b> of the example (bill, statement, screenshot) · <u>browse</u></span><input type="file" accept="image/*" data-ex-file hidden></label>`}
+          <label class="field" style="margin-top:.8rem"><span>Expected result</span>
+            <textarea data-ex="expected" rows="1" placeholder="e.g. Steps 6 and 7 are in place on the bill">${esc(s.example.expected || '')}</textarea>
+          </label>
         </section>
 
         <section class="card">
@@ -83,8 +120,20 @@ const Editor = (() => {
             ${listEd('mistakes', 'What usually goes wrong, and how to fix it', 'Add mistake', 'warn')}
             ${secretHint()}
           </div>
+          <div class="field secret-scope"><span>Controls and verification <em>optional</em></span>
+            ${listEd('controls', 'e.g. Confirm approvals before any action that needs authorisation', 'Add control', 'box')}
+            ${secretHint()}
+          </div>
+          <div class="field secret-scope"><span>Exceptions and escalation <em>optional</em></span>
+            ${listEd('exceptions', 'e.g. Missing document: hold the item and request the evidence', 'Add exception', 'warn')}
+            ${secretHint()}
+          </div>
           <label class="field secret-scope"><span>Output</span>
             <textarea data-f="output" rows="2" placeholder="What is produced, and where it is saved or sent.">${esc(s.output)}</textarea>
+            ${secretHint()}
+          </label>
+          <label class="field secret-scope"><span>Records, filing and retention <em>optional</em></span>
+            <textarea data-f="records" rows="2" placeholder="What is filed where, and for how long">${esc(s.records)}</textarea>
             ${secretHint()}
           </label>
         </section>
@@ -94,24 +143,40 @@ const Editor = (() => {
           <div class="links-ed">
             ${s.links.map((l, i) => `
             <div class="link-row">
-              <input data-lk="${i}" data-lf="label" value="${esc(l.label)}" placeholder="Name, e.g. Offering count sheets">
-              <input data-lk="${i}" data-lf="url" value="${esc(l.url)}" placeholder="https://…" inputmode="url">
+              <textarea rows="1" data-lk="${i}" data-lf="label" placeholder="Name, e.g. Offering count sheets">${esc(l.label)}</textarea>
+              <textarea rows="1" data-lk="${i}" data-lf="url" placeholder="https://…" inputmode="url">${esc(l.url)}</textarea>
               <button class="icon-btn" data-ed="lk-del" data-i="${i}" aria-label="Remove link">${ico('x')}</button>
             </div>`).join('')}
           </div>
           <button class="add-line" data-ed="lk-add">${ico('plus')} Add link</button>
+        </section>
+
+        <section class="card" id="f-signoff">
+          <h2 class="card-title">${ico('pen')} Sign-off and version</h2>
+          <datalist id="people-list">${S.users.filter((u) => u.active).map((u) => `<option value="${esc(u.name)}">`).join('')}</datalist>
+          <div class="grid3">
+            <label class="field"><span>Prepared by</span><input data-f="preparedBy" list="people-list" value="${esc(s.preparedBy)}" placeholder="Name"></label>
+            <label class="field"><span>Reviewed by</span><input data-f="reviewedBy" list="people-list" value="${esc(s.reviewedBy)}" placeholder="Name"></label>
+            <label class="field"><span>Approved by</span><input data-f="approvedBy" list="people-list" value="${esc(s.approvedBy)}" placeholder="Name"></label>
+            <label class="field"><span>Date of preparation</span><input type="date" data-f="preparedOn" value="${esc(s.preparedOn)}"></label>
+            <label class="field"><span>Version</span><div class="static"><b>${esc(s.version)}</b></div></label>
+            <label class="field"><span>Date of change</span><div class="static">${s.changedOn ? fmtDate(s.changedOn) : '—'}</div></label>
+          </div>
+          ${s.changeNote ? `<p class="muted small">What changed in ${esc(s.version)}: ${esc(s.changeNote)}</p>` : ''}
+          <button class="btn sm" data-ed="new-version">${ico('plus')} Start a new version</button>
+          <small class="hint" style="display:block;margin-top:.4rem">Keeps version ${esc(s.version)} exactly as it is (anyone can still open it) and starts the next version.</small>
         </section>
       </div>
       <aside class="ed-side">${side()}</aside>
     </div>`;
   }
 
-  const secretHint = () => `<div class="secret-hint">${ico('alert')} This looks like a password, PIN or account number. Don't store these here. Write who gives access instead (e.g. "the treasurer has the login").</div>`;
+  const secretHint = () => `<div class="secret-hint">${ico('alert')} This looks like a password, PIN, OTP or card number. Don't store these here. Write who gives access instead (e.g. "Mercy has the login").</div>`;
 
   function listEd(key, placeholder, addLabel, kind = '') {
     const items = E.sop[key];
     return `<div class="list-ed ${kind}" data-list="${key}">
-      ${items.map((v, i) => `<div class="li-row"><span class="mark"></span><input value="${esc(v)}" data-li="${i}" placeholder="${esc(placeholder)}"><button class="icon-btn" data-ed="li-del" data-i="${i}" aria-label="Remove" tabindex="-1">${ico('x')}</button></div>`).join('')}
+      ${items.map((v, i) => `<div class="li-row"><span class="mark"></span><textarea rows="1" data-li="${i}" placeholder="${esc(placeholder)}">${esc(v)}</textarea><button class="icon-btn" data-ed="li-del" data-i="${i}" aria-label="Remove" tabindex="-1">${ico('x')}</button></div>`).join('')}
       <button class="add-line" data-ed="li-add">${ico('plus')} ${addLabel}</button>
     </div>`;
   }
@@ -138,7 +203,7 @@ const Editor = (() => {
             <button class="btn sm danger-text" data-ed="img-del">${ico('trash')} Remove</button>
           </div>
         </div>
-        <input class="caption" data-sf="caption" value="${esc(st.caption)}" placeholder="Caption (optional): what to look at in this screenshot">
+        <textarea class="caption" rows="1" data-sf="caption" placeholder="Caption (optional): what to look at in this screenshot">${esc(st.caption)}</textarea>
       ` : `
         <label class="drop">
           ${ico('image')}
@@ -146,13 +211,13 @@ const Editor = (() => {
           <input type="file" accept="image/*" data-ed-file hidden>
         </label>`}
       <div class="grid2">
-        <input data-sf="link" value="${esc(st.link)}" placeholder="Link (optional)" inputmode="url">
-        <input data-sf="linkLabel" value="${esc(st.linkLabel)}" placeholder="Button text, e.g. Open the count sheet">
+        <textarea rows="1" data-sf="link" placeholder="Link (optional)" inputmode="url">${esc(st.link)}</textarea>
+        <textarea rows="1" data-sf="linkLabel" placeholder="Button text, e.g. Open the count sheet">${esc(st.linkLabel)}</textarea>
       </div>
       <details ${st.note || st.video ? 'open' : ''}>
         <summary>Warning, tip or video</summary>
         <textarea data-sf="note" rows="2" placeholder="Something to watch out for in this step">${esc(st.note)}</textarea>
-        <input data-sf="video" value="${esc(st.video)}" placeholder="Short video link (Loom, YouTube, Drive)" inputmode="url">
+        <textarea rows="1" data-sf="video" placeholder="Short video link (Loom, YouTube, Drive)" inputmode="url">${esc(st.video)}</textarea>
       </details>
       ${secretHint()}
     </div>`;
@@ -176,7 +241,7 @@ const Editor = (() => {
       ${s.status !== 'Published' ? `<button class="btn primary block" data-ed="status" data-v="Published">${ico('check')} Publish</button>` : ''}
       <a class="btn ghost block" href="#/sop/${s.id}">Preview as a reader</a>
     </div>
-    <div class="card tip">${ico('key')}<p><b>No passwords or account numbers.</b> Never write passwords, PINs, OTPs or full bank and card numbers in a guide. Write who grants access instead.</p></div>`;
+    <div class="card tip">${ico('key')}<p><b>No passwords.</b> Never write passwords, PINs, OTPs or card numbers in a guide. Write who gives access instead. Account numbers can go in Admin → Accounts.</p></div>`;
   }
 
   /* ---------- Mount & events ---------- */
@@ -242,6 +307,8 @@ const Editor = (() => {
       changed();
       return;
     }
+    if (t.dataset.role != null) { s.roles[+t.dataset.role][t.dataset.rf] = t.value; autosize(t); changed(); return; }
+    if (t.dataset.ex) { s.example = { ...s.example, [t.dataset.ex]: t.value }; autosize(t); changed(); return; }
     if (t.dataset.f) s[t.dataset.f] = t.value;
     else if (t.dataset.sf) stepOf(t)[t.dataset.sf] = t.value;
     else if (t.dataset.li != null) s[t.closest('[data-list]').dataset.list][+t.dataset.li] = t.value;
@@ -253,7 +320,13 @@ const Editor = (() => {
     changed();
   }
 
+  async function addExampleImage(file) {
+    setSaveState('Adding picture…', true);
+    try { E.sop.example = { ...E.sop.example, imageId: await storeImage(await compressImage(file)) }; changed(); redraw(); }
+    catch { toast("Couldn't read that image", 'err'); setSaveState('Saved'); }
+  }
   function onChange(e) {
+    if (e.target.matches('[data-ex-file]')) { const f = e.target.files[0]; if (f) addExampleImage(f); return; }
     if (e.target.matches('[data-ed-file]')) {
       const f = e.target.files[0];
       if (f) addImage(f, e.target.closest('[data-step]').dataset.step);
@@ -262,6 +335,7 @@ const Editor = (() => {
 
   function onKey(e) {
     const t = e.target;
+    if (t.dataset.f === 'name' && e.key === 'Enter') { e.preventDefault(); t.blur(); return; }
     if (t.dataset.li == null) return;
     const key = t.closest('[data-list]').dataset.list;
     const i = +t.dataset.li;
@@ -328,6 +402,10 @@ const Editor = (() => {
         break;
       }
       case 'status': setStatus(b.dataset.v); break;
+      case 'role-add': s.roles.push({ role: '', person: '', duties: '' }); changed(); redraw(`[data-role="${s.roles.length - 1}"][data-rf="role"]`); break;
+      case 'role-del': s.roles.splice(+b.dataset.i, 1); changed(); redraw(); break;
+      case 'ex-img-del': s.example = { ...s.example, imageId: '' }; changed(); redraw(); break;
+      case 'new-version': E.dirty = true; await flush(); newVersionModal(E.sop); break;
     }
   }
 
