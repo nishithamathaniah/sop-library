@@ -60,8 +60,15 @@ const LocalDB = (() => {
 })();
 
 /* ---------- Cloud backend (Supabase) ---------- */
+/* On the live site, talk to Supabase through the site's own address (/sb, see
+   vercel.json). Some networks (including Indian ISPs) block supabase.co
+   directly; going through the site's address avoids that. Elsewhere
+   (e.g. testing on a computer) the Supabase address is used as-is. */
+const SB_ENDPOINT = CLOUD && CONFIG.supabaseProxy && location.protocol === 'https:' && !/^(localhost|127\.)/.test(location.hostname)
+  ? location.origin + CONFIG.supabaseProxy
+  : CONFIG.supabaseUrl;
 const sb = CLOUD && window.supabase
-  ? window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true } })
+  ? window.supabase.createClient(SB_ENDPOINT, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true } })
   : null;
 
 const CloudDB = (() => {

@@ -13,6 +13,7 @@
 window.SOP_CONFIG = {
   supabaseUrl: 'https://arkvawlxevnwarpfstfx.supabase.co',
   supabaseAnonKey: 'sb_publishable_c0Juxd4wtYE7eHdMz2M0mA_eX22XlFj',
+  supabaseProxy: '/sb',             // reach Supabase through this site (vercel.json), so networks that block supabase.co still work
   appName: 'Finance Handbook',      // shown in the menu and on the sign-in page
   orgName: "The Father's House",    // used when the logo is turned off
   orgLogo: true,                    // show The Father's House logo (js/logo.js)
