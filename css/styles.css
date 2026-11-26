@@ -697,3 +697,9 @@ dialog.sheet { width: min(340px, calc(100vw - 2rem)); }
 .facts { grid-template-columns: repeat(4, 1fr); }
 .facts .wide { grid-column: span 2; }
 @media (max-width: 860px) { .facts .wide { grid-column: 1 / -1; } }
+
+/* Password show/hide */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 2.9rem; }
+.pw-eye { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; background: none; border-radius: 8px; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.pw-eye:hover { color: var(--ink); background: var(--surface-2); }

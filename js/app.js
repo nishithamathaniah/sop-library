@@ -106,6 +106,8 @@ const ICONS = {
   list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
   video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  eyeOff: 'M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2',
   key: 'M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4zM16.5 7.5h.01',
   download: 'M12 4v12M6 10l6 6 6-6M4 20h16',
   upload: 'M12 20V8M6 14l6-6 6 6M4 4h16',
@@ -1486,6 +1488,31 @@ document.addEventListener('keydown', (e) => {
   }
 });
 window.addEventListener('hashchange', render);
+
+/* Show/hide (eye) button on every password box, wherever it appears */
+function addPasswordEyes(root = document) {
+  $$('input[type=password]:not([data-eye])', root).forEach((inp) => {
+    inp.dataset.eye = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'pw-wrap';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-eye';
+    btn.setAttribute('aria-label', 'Show password');
+    btn.innerHTML = ico('eye');
+    btn.addEventListener('click', () => {
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      btn.innerHTML = ico(show ? 'eyeOff' : 'eye');
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      inp.focus();
+    });
+    wrap.appendChild(btn);
+  });
+}
+new MutationObserver(() => addPasswordEyes()).observe(document.body, { childList: true, subtree: true });
 
 (async function boot() {
   if (CLOUD) {
